@@ -1,4 +1,4 @@
-# ekglue
+# ekglue - Envoy/Kubernetes glue
 
 This project exists to glue together [Kubernetes](https://kubernetes.io/) and
 [Envoy](https://www.envoyproxy.io/), allowing Envoy to read Kubernetes
