@@ -52,7 +52,7 @@ func TestCDSFlow(t *testing.T) {
 	}
 
 	doneCh := make(chan error)
-	ctx, done := context.WithTimeout(context.Background(), time.Second)
+	ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
 	logger := zaptest.NewLogger(t, zaptest.Level(zap.DebugLevel))
 	ctx = ctxzap.ToContext(ctx, logger)
 	stream := fakexds.NewStream(ctx)

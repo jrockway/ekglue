@@ -43,5 +43,6 @@ jobs:
                     args:
                         - -c
                         - |
+                            export ENVOY_PATH=$PWD/$ENVOY_PATH
                             cd ekglue
                             go test -v -race ./...
