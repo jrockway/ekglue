@@ -10,12 +10,20 @@ resources:
       source:
           repository: golang
           tag: latest
+    - name: envoy-latest
+      type: registry-image
+      icon: docker
+      source:
+          repository: envoyproxy/envoy
+          tag: latest
 
 jobs:
     - name: tests
       public: true
       plan:
           - get: golang-latest
+            trigger: true
+          - get: envoy-latest
             trigger: true
           - get: source
             trigger: true
@@ -26,6 +34,10 @@ jobs:
                 inputs:
                     - name: source
                       path: ekglue
+                    - name: envoy-latest
+                      path: envoy
+                params:
+                    ENVOY_PATH: "envoy/rootfs/usr/local/bin/envoy"
                 run:
                     path: /bin/sh
                     args:
