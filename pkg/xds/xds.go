@@ -47,8 +47,32 @@ func NewServer() *Server {
 	}
 }
 
+// ListClusters returns the clusters that we are managing.  Meant to mirror kubernetes's cache.Store
+// API.
+func (s *Server) ListClusters() []*envoy_api_v2.Cluster {
+	s.Lock()
+	defer s.Unlock()
+	var result []*envoy_api_v2.Cluster
+	for _, v := range s.clusters {
+		result = append(result, v)
+	}
+	return result
+}
+
 // AddClusters adds or updates clusters, and notifies all connected clients of the change.
 func (s *Server) AddClusters(cs []*envoy_api_v2.Cluster) error {
+	s.Lock()
+	defer s.Unlock()
+	if err := s.addClusters(cs); err != nil {
+		return err
+	}
+	s.broadcastClusterChange()
+	return nil
+}
+
+// addClusters tracks a list of clusters, but requires that you already hold the lock and does not
+// broadcast the change to connected clients.
+func (s *Server) addClusters(cs []*envoy_api_v2.Cluster) error {
 	if len(cs) == 0 {
 		return nil
 	}
@@ -62,10 +86,6 @@ func (s *Server) AddClusters(cs []*envoy_api_v2.Cluster) error {
 	if n := len(validationErrors); n > 0 {
 		return fmt.Errorf("%d validation error(s): %v", n, validationErrors)
 	}
-
-	s.Lock()
-	defer s.Unlock()
-
 	for _, c := range cs {
 		name := c.GetName()
 		_, overwrote := s.clusters[name]
@@ -76,7 +96,41 @@ func (s *Server) AddClusters(cs []*envoy_api_v2.Cluster) error {
 		}
 		s.clusters[name] = c
 	}
-	clusterUpdateCount.Add(float64(len(cs)))
+	return nil
+}
+
+// DeleteCluster deletes a cluster by name, and notifies all connected clients of the change.
+func (s *Server) DeleteCluster(name string) {
+	s.Lock()
+	defer s.Unlock()
+	_, exists := s.clusters[name]
+	if !exists {
+		zap.L().Warn("cannot delete untracked cluster", zap.String("cluster_name", name))
+		return
+	}
+	delete(s.clusters, name)
+	zap.L().Info("deleted cluster", zap.String("cluster_name", name))
+	s.broadcastClusterChange()
+}
+
+// ReplaceClusters replaces all tracked clusters with a new list of clusters.
+func (s *Server) ReplaceClusters(cs []*envoy_api_v2.Cluster) error {
+	s.Lock()
+	defer s.Unlock()
+	origClusters := s.clusters
+	s.clusters = make(map[string]*envoy_api_v2.Cluster)
+	if err := s.addClusters(cs); err != nil {
+		s.clusters = origClusters
+		return err
+	}
+	s.broadcastClusterChange()
+	return nil
+}
+
+// broadcastClusterChange tells open streams that the cluster configuration changed.  You must hold
+// the server lock.
+func (s *Server) broadcastClusterChange() {
+	clusterUpdateCount.Inc()
 	s.cdsVersion++
 	clusterConfigVersions.With(prometheus.Labels{"config_version": strconv.Itoa(s.cdsVersion)}).SetToCurrentTime()
 
@@ -89,7 +143,6 @@ func (s *Server) AddClusters(cs []*envoy_api_v2.Cluster) error {
 			zap.L().Warn("cluster update would have blocked; skipping", zap.Any("session", session))
 		}
 	}
-	return nil
 }
 
 // snapshotClusters returns a copy of all the currently-tracked clusters and the version number of
