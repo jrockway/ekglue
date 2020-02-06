@@ -6,6 +6,7 @@ cluster_config:
         - match:
               - cluster_name: foo:bar:http2
           override:
+              lb_policy: RANDOM
               connect_timeout: 2s
               http2_protocol_options: {}
         - match:

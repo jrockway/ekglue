@@ -116,6 +116,7 @@ func TestClustersFromService(t *testing.T) {
 					Name:                 "foo:bar:http2",
 					ConnectTimeout:       ptypes.DurationProto(2 * time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
+					LbPolicy:             envoy_api_v2.Cluster_RANDOM,
 					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http2", "bar.foo.svc.cluster.local.", 80),
 					Http2ProtocolOptions: &envoy_api_v2_core.Http2ProtocolOptions{},
 					HealthChecks: []*envoy_api_v2_core.HealthCheck{

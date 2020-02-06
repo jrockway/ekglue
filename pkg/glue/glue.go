@@ -179,8 +179,11 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 			n = strconv.Itoa(int(port.Port))
 		}
 		cl.Name = fmt.Sprintf("%s:%s:%s", svc.GetNamespace(), svc.GetName(), n)
-		cl.ClusterDiscoveryType = &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS}
-		cl.LbPolicy = envoy_api_v2.Cluster_ROUND_ROBIN
+		if cl.ClusterDiscoveryType == nil {
+			cl.ClusterDiscoveryType = &envoy_api_v2.Cluster_Type{
+				Type: envoy_api_v2.Cluster_STRICT_DNS,
+			}
+		}
 		cl.LoadAssignment = singleTargetLoadAssignment(cl.Name, fmt.Sprintf("%s.%s.svc.cluster.local.", svc.GetName(), svc.GetNamespace()), port.Port)
 		proto.Merge(cl, c.GetOverride(cl, svc, port))
 		result = append(result, cl)
