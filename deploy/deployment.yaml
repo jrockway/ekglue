@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: ekglue
+    annotations:
+        "sidecar.jaegertracing.io/inject": "jaeger"
+spec:
+    replicas: 1
+    template:
+        spec:
+            containers:
+                - name: ekglue
+                  image: ekglue
+                  env:
+                      - name: JAEGER_SERVICE_NAME
+                        value: ekglue
+                      - name: JAEGER_SAMPLER_TYPE
+                        value: const
+                      - name: JAEGER_SAMPLER_PARAM
+                        value: "1"
+                  readinessProbe:
+                      exec:
+                          command:
+                              - /bin/grpc_health_probe
+                              - -addr
+                              - localhost:9000
+                      initialDelaySeconds: 1
+                      periodSeconds: 10
+                  livenessProbe:
+                      exec:
+                          command:
+                              - /bin/grpc_health_probe
+                              - -addr
+                              - localhost:9000
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+                  ports:
+                      - name: grpc
+                        containerPort: 9000
+                      - name: debug
+                        containerPort: 8081
+            imagePullSecrets:
+                - name: registry-credentials

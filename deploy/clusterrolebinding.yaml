@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: ekglue-reader-binding
+subjects:
+    - kind: ServiceAccount
+      name: default
+      namespace: discovery
+roleRef:
+    kind: ClusterRole
+    name: ekglue-reader
+    apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,13 @@
+namespace: discovery
+commonLabels:
+    app: ekglue
+resources:
+    - namespace.yaml
+    - deployment.yaml
+    - service.yaml
+    - clusterrole.yaml
+    - clusterrolebinding.yaml
+images:
+    - name: ekglue
+      newName: registry.jrock.us/ekglue
+      newTag: 0.0.2
