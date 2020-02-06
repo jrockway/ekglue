@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/jrockway/ekglue/pkg/glue"
 	"github.com/jrockway/ekglue/pkg/k8s"
@@ -11,22 +13,29 @@ import (
 )
 
 var (
-	kubeconfig = flag.String("kubeconfig", "", "path to the kubeconfig for the cluster you want to run again")
-	config     = flag.String("config", "ekglue.yaml", "path to the ekglue config")
+	kubeconfig string
+	config     = flag.String("config", "", "path to the ekglue config")
 	verbose    = flag.Bool("verbose", false, "true to dump cluster YAML with defaults listed")
 )
 
 func main() {
+	flag.StringVar(&kubeconfig, "kubeconfig", filepath.Join(os.Getenv("HOME"), ".kube", "config"), "path to the kubeconfig for the cluster you want to run again")
 	klog.InitFlags(nil)
 	flag.Parse()
-	w, err := k8s.ConnectOutOfCluster(*kubeconfig, "")
+	w, err := k8s.ConnectOutOfCluster(kubeconfig, "")
 	if err != nil {
 		klog.Fatalf("connect to k8s cluster: %v", err)
 	}
 
-	cfg, err := glue.LoadConfig(*config)
-	if err != nil {
-		klog.Fatalf("load config %q: %v", *config, err)
+	var cfg *glue.Config
+	if *config != "" {
+		var err error
+		cfg, err = glue.LoadConfig(*config)
+		if err != nil {
+			klog.Fatalf("load config %q: %v", *config, err)
+		}
+	} else {
+		cfg = glue.DefaultConfig()
 	}
 
 	server := xds.NewServer()
