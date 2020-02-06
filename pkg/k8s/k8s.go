@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -49,5 +50,18 @@ func (cw *ClusterWatcher) WatchServices(ctx context.Context, s cache.Store) erro
 	lw := cache.NewListWatchFromClient(cw.coreV1Client, "services", "", fields.Everything())
 	r := cache.NewReflector(lw, &v1.Service{}, s, 0)
 	r.Run(ctx.Done())
+	return nil
+}
+
+// ListServices sends all services to the provided cache.Store
+func (cw *ClusterWatcher) ListServices(s cache.Store) error {
+	lw := cache.NewListWatchFromClient(cw.coreV1Client, "services", "", fields.Everything())
+	raw, err := lw.List(metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	for _, svc := range raw.(*v1.ServiceList).Items {
+		s.Add(&svc)
+	}
 	return nil
 }
