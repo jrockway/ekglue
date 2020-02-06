@@ -2,27 +2,83 @@
 package glue
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"strconv"
 	"time"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/jrockway/ekglue/pkg/xds"
 	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/yaml"
 )
 
+type Matcher struct {
+	// ClusterName matches the mangled name of a cluster (not the original service name).
+	ClusterName string `json:"cluster_name"`
+}
+
+type ClusterOverride struct {
+	// Match specifies a cluster to match; multiple items are OR'd.
+	Match []*Matcher `json:"match"`
+	// Configuration to override if a matcher matches.
+	Override *envoy_api_v2.Cluster `json:"override"`
+}
+
+func (o *ClusterOverride) UnmarshalJSON(b []byte) error {
+	tmp := struct {
+		Match    []*Matcher      `json:"match"`
+		Override json.RawMessage `json:"override"`
+	}{}
+	if err := json.Unmarshal(b, &tmp); err != nil {
+		return fmt.Errorf("ClusterOverride: unmarshal into temporary structure: %w", err)
+	}
+	o.Match = tmp.Match
+	base := &envoy_api_v2.Cluster{}
+	if err := jsonpb.UnmarshalString(string(tmp.Override), base); err != nil {
+		return fmt.Errorf("ClusterOverride: unmarshal Override: %w", err)
+	}
+	o.Override = base
+	return nil
+}
+
 type ClusterConfig struct {
-	//NameTemplate string                `json:"name_template"`
+	//NameTemplate string `json:"name_template"`
+
+	// The base configuration that should be used for all clusters.
 	BaseConfig *envoy_api_v2.Cluster `json:"base"`
+	// Any rule-based overrides.
+	Overrides []*ClusterOverride `json:"overrides"`
+}
+
+func (c *ClusterConfig) UnmarshalJSON(b []byte) error {
+	tmp := struct {
+		BaseConfig json.RawMessage    `json:"base"`
+		Overrides  []*ClusterOverride `json:"overrides"`
+	}{}
+	if err := json.Unmarshal(b, &tmp); err != nil {
+		return fmt.Errorf("ClusterConfig: unmarshal into temporary structure: %w", err)
+	}
+	c.Overrides = tmp.Overrides
+
+	base := &envoy_api_v2.Cluster{}
+	if err := jsonpb.UnmarshalString(string(tmp.BaseConfig), base); err != nil {
+		return fmt.Errorf("ClusterConfig: unmarshal BaseConfig: %w", err)
+	}
+	c.BaseConfig = base
+	return nil
 }
 
 type Config struct {
+	ApiVersion    string         `json:"apiVersion"`
 	ClusterConfig *ClusterConfig `json:"cluster_config"`
 }
 
@@ -36,15 +92,51 @@ func DefaultConfig() *Config {
 	}
 }
 
+func LoadConfig(filename string) (*Config, error) {
+	raw, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	js, err := yaml.YAMLToJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("converting YAML to JSON: %w", err)
+	}
+
+	cfg := DefaultConfig()
+	if err := json.Unmarshal(js, cfg); err != nil {
+		return nil, err
+	}
+	if v := cfg.ApiVersion; v != "v1alpha" {
+		return nil, fmt.Errorf("unknown config version %q; expected v1alpha", v)
+	}
+	return cfg, nil
+}
+
 // Base returns a deep copy of the base cluster configuration.
 func (c *ClusterConfig) GetBaseConfig() *envoy_api_v2.Cluster {
 	raw := proto.Clone(c.BaseConfig)
 	cluster, ok := raw.(*envoy_api_v2.Cluster)
 	if !ok {
-		zap.L().Error("internal error: couldn't clone ClusterConfig.BaseConfig")
-		return &envoy_api_v2.Cluster{}
+		zap.L().Fatal("internal error: couldn't clone ClusterConfig.BaseConfig")
 	}
 	return cluster
+}
+
+// GetOverride returns the override configuration for the provided service.
+func (c *ClusterConfig) GetOverride(cluster *envoy_api_v2.Cluster, svc *v1.Service, port v1.ServicePort) *envoy_api_v2.Cluster {
+	base := &envoy_api_v2.Cluster{}
+	for _, o := range c.Overrides {
+		if o.Override == nil {
+			continue
+		}
+		for _, m := range o.Match {
+			if m.ClusterName == cluster.GetName() {
+				proto.Merge(base, o.Override)
+				break
+			}
+		}
+	}
+	return base
 }
 
 // this is not a logical factoring of this operation, it's strictly for convenience, laziness, and
@@ -88,7 +180,9 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 		}
 		cl.Name = fmt.Sprintf("%s:%s:%s", svc.GetNamespace(), svc.GetName(), n)
 		cl.ClusterDiscoveryType = &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS}
+		cl.LbPolicy = envoy_api_v2.Cluster_ROUND_ROBIN
 		cl.LoadAssignment = singleTargetLoadAssignment(cl.Name, fmt.Sprintf("%s.%s.svc.cluster.local.", svc.GetName(), svc.GetNamespace()), port.Port)
+		proto.Merge(cl, c.GetOverride(cl, svc, port))
 		result = append(result, cl)
 	}
 	return result

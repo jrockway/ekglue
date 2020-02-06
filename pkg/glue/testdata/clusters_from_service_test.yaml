@@ -1,0 +1,22 @@
+apiVersion: v1alpha
+cluster_config:
+    base:
+        connect_timeout: 1s
+    overrides:
+        - match:
+              - cluster_name: foo:bar:http2
+          override:
+              connect_timeout: 2s
+              http2_protocol_options: {}
+        - match:
+              - cluster_name: foo:bar:http2
+          override:
+              health_checks:
+                  - timeout: 1s
+                    interval: 10s
+                    healthy_threshold: 1
+                    unhealthy_threshold: 2
+                    http_health_check:
+                        host: "test"
+                        path: "/healthz"
+                        codec_client_type: HTTP2

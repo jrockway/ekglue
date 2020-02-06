@@ -21,6 +21,7 @@ type kflags struct {
 }
 
 type flags struct {
+	Config        string `short:"c" long:"config" env:"EKGLUE_CONFIG_FILE" description:"config file to read"`
 	VersionPrefix string `long:"version_prefix" env:"VERSION_PREFIX" description:"a string to prepend to the version number that we use to identify the generated configuration to envoy and in metrics"`
 }
 
@@ -58,6 +59,14 @@ func main() {
 		}
 	}
 	cfg := glue.DefaultConfig()
+	if filename := f.Config; filename != "" {
+		zap.L().Info("reading config", zap.String("filename", filename))
+		var err error
+		cfg, err = glue.LoadConfig(filename)
+		if err != nil {
+			zap.L().Fatal("problem reading config file", zap.String("filename", filename), zap.Error(err))
+		}
+	}
 	go watcher.WatchServices(context.Background(), cfg.ClusterConfig.Store(svc))
 
 	server.ListenAndServe()
