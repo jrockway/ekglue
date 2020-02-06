@@ -1,0 +1,98 @@
+resources:
+    - name: source
+      type: git
+      icon: github-circle
+      source:
+          uri: https://github.com/jrockway/ekglue
+    - name: golang-latest
+      type: registry-image
+      icon: docker
+      source:
+          repository: golang
+          tag: latest
+    - name: envoy-latest
+      type: registry-image
+      icon: docker
+      source:
+          repository: envoyproxy/envoy
+          tag: latest
+    - name: ekglue-version
+      type: semvar
+      icon: counter
+      source:
+          driver: s3
+          bucket: ((versions.bucket))
+          access_key_id: ((versions.access_key_id))
+          secret_access_key: ((versions.secret_access_key))
+          region_name: ((versions.region_name))
+          endpoint: ((versions.endpoint))
+          key: ekglue-version
+          initial_version: 0.0.1
+    - name: ekglue-container
+      type: registry-image
+      icon: docker
+      source:
+          repository: registry.jrock.us/ekglue
+          username: ((registry.username))
+          password: ((registry.password))
+
+jobs:
+    - name: tests
+      public: true
+      plan:
+          - get: golang-latest
+            trigger: true
+          - get: envoy-latest
+            trigger: true
+          - get: source
+            trigger: true
+          - task: test
+            image: golang-latest
+            config:
+                platform: linux
+                inputs:
+                    - name: source
+                      path: ekglue
+                    - name: envoy-latest
+                      path: envoy
+                params:
+                    ENVOY_PATH: "envoy/rootfs/usr/local/bin/envoy"
+                run:
+                    path: /bin/sh
+                    args:
+                        - -c
+                        - |
+                            export ENVOY_PATH=$PWD/$ENVOY_PATH
+                            cd ekglue
+                            go test -v -race ./...
+    - name: container
+      public: true
+      plan:
+          - get: source
+            trigger: true
+          - get: ekglue-version
+            params:
+                bump: patch
+          - task: build
+            privileged: true
+            config:
+                platform: linux
+                image_resource:
+                    type: registry-image
+                    source:
+                        repository: vito/oci-build-task
+                params:
+                    CONTEXT: source
+                inputs:
+                    - name: source
+                outputs:
+                    - name: image
+                run:
+                    path: build
+          - put: ekglue-container
+            params:
+                image: image/image.tar
+                additional_tags: ekglue-version/version
+          - put: ekglue-version
+            params:
+                file: ekglue-version/version
