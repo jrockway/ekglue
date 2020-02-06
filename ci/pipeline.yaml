@@ -17,7 +17,7 @@ resources:
           repository: envoyproxy/envoy
           tag: latest
     - name: ekglue-version
-      type: semvar
+      type: semver
       icon: counter
       source:
           driver: s3
