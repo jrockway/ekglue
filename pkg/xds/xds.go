@@ -148,7 +148,7 @@ func (s *Server) broadcastClusterChange() {
 			clusterUpdateSessionsInformed.Inc()
 		default:
 			clusterUpdateSessionsMissed.Inc()
-			zap.L().Warn("cluster update would have blocked; skipping", zap.Any("session", session))
+			zap.L().Warn("cluster update would have blocked; skipping")
 		}
 	}
 }
