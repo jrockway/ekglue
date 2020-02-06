@@ -47,5 +47,3 @@ spec:
                         containerPort: 9000
                       - name: debug
                         containerPort: 8081
-            imagePullSecrets:
-                - name: registry-credentials
