@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/envoyproxy/go-control-plane v0.9.2
+	github.com/go-test/deep v1.0.5
 	github.com/golang/protobuf v1.3.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0
 	github.com/jrockway/opinionated-server v0.0.4
