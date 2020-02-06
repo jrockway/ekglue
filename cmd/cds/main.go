@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/jrockway/ekglue/pkg/glue"
 	"github.com/jrockway/ekglue/pkg/k8s"
@@ -35,6 +36,7 @@ func main() {
 	server.AddService(func(s *grpc.Server) {
 		envoy_api_v2.RegisterClusterDiscoveryServiceServer(s, svc)
 	})
+	http.Handle("/config_dump", svc)
 
 	server.Setup()
 	svc.VersionPrefix = f.VersionPrefix

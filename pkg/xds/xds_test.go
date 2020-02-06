@@ -13,6 +13,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+	"sigs.k8s.io/yaml"
 
 	"github.com/golang/protobuf/ptypes"
 	"github.com/jrockway/ekglue/pkg/xds/internal/fakexds"
@@ -109,5 +110,30 @@ func TestCDSFlow(t *testing.T) {
 	finalErr := <-doneCh
 	if err != nil && !errors.Is(finalErr, context.Canceled) {
 		t.Fatalf("server stopped for an unexpected reason: %v", err)
+	}
+}
+
+func TestConfigAsYAML(t *testing.T) {
+	s := NewServer()
+	err := s.AddClusters([]*envoy_api_v2.Cluster{
+		{
+			Name: "foo",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := s.ConfigAsYAML(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, err := yaml.YAMLToJSON(bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := `{"static_resources":{"clusters":[{"name":"foo"}]}}`
+	if got := string(js); got != want {
+		t.Errorf("yaml:\n  got: %v\n want: %v", got, want)
 	}
 }

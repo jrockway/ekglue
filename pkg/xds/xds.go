@@ -6,9 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"sort"
 	"sync"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	envoy_config_bootstrap_v2 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v2"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -17,6 +21,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"sigs.k8s.io/yaml"
 )
 
 // cdsSession represents an RPC stream subscribed to cluster updates.
@@ -308,4 +313,41 @@ func (s *Server) StreamClusters(stream envoy_api_v2.ClusterDiscoveryService_Stre
 			break
 		}
 	}
+}
+
+// ConfigAsYAML dumps the currently-tracked clusters as YAML.
+func (s *Server) ConfigAsYAML(verbose bool) ([]byte, error) {
+	clusters := s.ListClusters()
+	sort.Slice(clusters, func(i, j int) bool {
+		return clusters[i].GetName() < clusters[j].GetName()
+	})
+	bs := &envoy_config_bootstrap_v2.Bootstrap{
+		StaticResources: &envoy_config_bootstrap_v2.Bootstrap_StaticResources{
+			Clusters: clusters,
+		},
+	}
+	js, err := (&jsonpb.Marshaler{EmitDefaults: verbose, OrigName: true}).MarshalToString(bs)
+	if err != nil {
+		return nil, err
+	}
+	ya, err := yaml.JSONToYAML([]byte(js))
+	if err != nil {
+		return nil, err
+	}
+	return ya, nil
+
+}
+
+// ServeHTTP dumps the currently-tracked clusters as YAML.
+//
+// It will normally omit defaults, but with "?verbose" in the query params, it will print those too.
+func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	_, verbose := req.URL.Query()["verbose"]
+	ya, err := s.ConfigAsYAML(verbose)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(ya)
 }
