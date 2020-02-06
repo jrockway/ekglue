@@ -19,9 +19,15 @@ type kflags struct {
 	Master     string `long:"master" env:"KUBE_MASTER" description:"url of the kubernetes master, only necessary when running outside of the cluster and when it's not specified in the provided kubeconfig"`
 }
 
+type flags struct {
+	VersionPrefix string `long:"version_prefix" env:"VERSION_PREFIX" description:"a string to prepend to the version number that we use to identify the generated configuration to envoy and in metrics"`
+}
+
 func main() {
 	server.AppName = "ekglue-cds"
 
+	f := new(flags)
+	server.AddFlagGroup("ekglue", f)
 	kf := new(kflags)
 	server.AddFlagGroup("Kubernetes", kf)
 
@@ -31,6 +37,7 @@ func main() {
 	})
 
 	server.Setup()
+	svc.VersionPrefix = f.VersionPrefix
 
 	var watcher *k8s.ClusterWatcher
 	if kf.Kubeconfig != "" || kf.Master != "" {
@@ -48,7 +55,6 @@ func main() {
 			zap.L().Fatal("problem connecting to cluster", zap.Error(err))
 		}
 	}
-
 	cfg := glue.DefaultConfig()
 	go watcher.WatchServices(context.Background(), cfg.ClusterConfig.Store(svc))
 

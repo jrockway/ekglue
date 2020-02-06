@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"sync"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
@@ -23,13 +22,17 @@ import (
 // cdsSession represents an RPC stream subscribed to cluster updates.
 type cdsSession chan struct{}
 
-// Server receives updates asynchronously via AddCluster
+// Server is a CDS server.
 type Server struct {
 	sync.Mutex
 
 	// We do not implement the GRPC_DELTA or REST protocols.  We include this to pick up stubs
 	// for those methods, and any future protocols that are added.
 	envoy_api_v2.UnimplementedClusterDiscoveryServiceServer
+
+	// VersionPrefix will be prepended to the version number that we send to Envoy, to make it
+	// clearer what instance a particular version came from.
+	VersionPrefix string
 
 	cdsVersion  int
 	clusters    map[string]*envoy_api_v2.Cluster
@@ -132,7 +135,7 @@ func (s *Server) ReplaceClusters(cs []*envoy_api_v2.Cluster) error {
 func (s *Server) broadcastClusterChange() {
 	clusterUpdateCount.Inc()
 	s.cdsVersion++
-	clusterConfigVersions.With(prometheus.Labels{"config_version": strconv.Itoa(s.cdsVersion)}).SetToCurrentTime()
+	clusterConfigVersions.With(prometheus.Labels{"config_version": fmt.Sprintf("%s%d", s.VersionPrefix, s.cdsVersion)}).SetToCurrentTime()
 
 	for session := range s.cdsSessions {
 		select {
@@ -146,8 +149,8 @@ func (s *Server) broadcastClusterChange() {
 }
 
 // snapshotClusters returns a copy of all the currently-tracked clusters and the version number of
-// the resulting config.  You must hold the lock on Server to call this method.
-func (s *Server) snapshotClusters() (int, []*any.Any) {
+// the resulting config.  You must hold the server lock.
+func (s *Server) snapshotClusters() (string, []*any.Any) {
 	result := make([]*any.Any, 0, len(s.clusters))
 	for _, cluster := range s.clusters {
 		any, err := ptypes.MarshalAny(cluster)
@@ -156,17 +159,17 @@ func (s *Server) snapshotClusters() (int, []*any.Any) {
 		}
 		result = append(result, any)
 	}
-	return s.cdsVersion, result
+	return fmt.Sprintf("%v%d", s.VersionPrefix, s.cdsVersion), result
 }
 
 // buildDiscoveryResponse builds a validated DiscoveryResponse containing clusters.  We do our own
 // validation, to avoid being surprised about Envoy rejecting an update.
-func buildDiscoveryResponse(version int, typeURL string, resources []*any.Any) (*envoy_api_v2.DiscoveryResponse, error) {
+func buildDiscoveryResponse(version string, typeURL string, resources []*any.Any) (*envoy_api_v2.DiscoveryResponse, error) {
 	res := &envoy_api_v2.DiscoveryResponse{
-		VersionInfo: strconv.Itoa(version),
+		VersionInfo: version,
 		TypeUrl:     typeURL,
 		Resources:   resources,
-		Nonce:       fmt.Sprintf("ekglue-%d", version),
+		Nonce:       fmt.Sprintf("nonce-%s", version),
 	}
 	if err := res.Validate(); err != nil {
 		return nil, fmt.Errorf("validating generated discovery response: %w", err)

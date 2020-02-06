@@ -18,6 +18,14 @@ spec:
                         value: const
                       - name: JAEGER_SAMPLER_PARAM
                         value: "1"
+                      - name: DEBUG_ADDRESS
+                        value: "0.0.0.0:8081"
+                      - name: MY_POD_NAME
+                        valueFrom:
+                            fieldRef:
+                                fieldPath: metadata.name
+                      - name: VERSION_PREFIX
+                        value: "$(MY_POD_NAME)-"
                   readinessProbe:
                       exec:
                           command:
