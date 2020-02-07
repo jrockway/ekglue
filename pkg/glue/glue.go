@@ -21,6 +21,11 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var (
+	// For extreme debugging, you can overwrite this.
+	Logger = zap.NewNop()
+)
+
 type Matcher struct {
 	// ClusterName matches the mangled name of a cluster (not the original service name).
 	ClusterName string `json:"cluster_name"`
@@ -209,6 +214,7 @@ func (c *ClusterConfig) Store(s *xds.Server) *ClusterStore {
 }
 
 func (cs *ClusterStore) Add(obj interface{}) error {
+	Logger.Debug("Add")
 	svc, ok := obj.(*v1.Service)
 	if !ok {
 		return fmt.Errorf("add service: got non-service object %#v", obj)
@@ -219,6 +225,7 @@ func (cs *ClusterStore) Add(obj interface{}) error {
 	return nil
 }
 func (cs *ClusterStore) Update(obj interface{}) error {
+	Logger.Debug("Update")
 	svc, ok := obj.(*v1.Service)
 	if !ok {
 		return fmt.Errorf("update service: got non-service object %#v", obj)
@@ -229,6 +236,7 @@ func (cs *ClusterStore) Update(obj interface{}) error {
 	return nil
 }
 func (cs *ClusterStore) Delete(obj interface{}) error {
+	Logger.Debug("Delete")
 	svc, ok := obj.(*v1.Service)
 	if !ok {
 		return fmt.Errorf("delete service: got non-service object %#v", obj)
@@ -240,6 +248,7 @@ func (cs *ClusterStore) Delete(obj interface{}) error {
 	return nil
 }
 func (cs *ClusterStore) List() []interface{} {
+	Logger.Debug("List")
 	clusters := cs.s.ListClusters()
 	var result []interface{}
 	for _, c := range clusters {
@@ -249,6 +258,7 @@ func (cs *ClusterStore) List() []interface{} {
 }
 
 func (cs *ClusterStore) ListKeys() []string {
+	Logger.Debug("ListKeys")
 	clusters := cs.s.ListClusters()
 	var result []string
 	for _, c := range clusters {
@@ -257,12 +267,15 @@ func (cs *ClusterStore) ListKeys() []string {
 	return result
 }
 func (cs *ClusterStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
+	Logger.Debug("Get")
 	return nil, false, errors.New("clusterwatcher.Get unimplemented")
 }
 func (cs *ClusterStore) GetByKey(key string) (item interface{}, exists bool, err error) {
+	Logger.Debug("GetByKey")
 	return nil, false, errors.New("clusterwatcher.GetByKey unimplemented")
 }
 func (cs *ClusterStore) Replace(objs []interface{}, _ string) error {
+	Logger.Debug("Replace")
 	var clusters []*envoy_api_v2.Cluster
 	for _, obj := range objs {
 		svc, ok := obj.(*v1.Service)
@@ -277,5 +290,6 @@ func (cs *ClusterStore) Replace(objs []interface{}, _ string) error {
 	return nil
 }
 func (cs *ClusterStore) Resync() error {
+	Logger.Debug("Resync")
 	return errors.New("clusterwatcher.Resync unimplemented")
 }
