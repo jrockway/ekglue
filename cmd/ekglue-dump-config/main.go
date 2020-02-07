@@ -38,7 +38,7 @@ func main() {
 		cfg = glue.DefaultConfig()
 	}
 
-	server := xds.NewServer()
+	server := xds.NewServer("ekglue-dump-config")
 	store := cfg.ClusterConfig.Store(server)
 	if err := w.ListServices(store); err != nil {
 		klog.Fatalf("list services: %v", err)

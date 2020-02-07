@@ -85,7 +85,7 @@ func TestCDS(t *testing.T) {
 	gs := grpc.NewServer()
 	go gs.Serve(gl)
 
-	cds := xds.NewServer()
+	cds := xds.NewServer("cds-test-")
 	envoy_api_v2.RegisterClusterDiscoveryServiceServer(gs, cds)
 
 	// Start Envoy.

@@ -46,8 +46,12 @@ func clustersFromResponse(res *envoy_api_v2.DiscoveryResponse) ([]string, error)
 }
 
 func TestCDSFlow(t *testing.T) {
-	s := NewServer()
-	s.ackCh = make(chan struct{})
+	s := NewServer("test")
+	ackCh := make(chan struct{})
+	s.cm.OnAck = func(a Acknowledgment) {
+		ackCh <- struct{}{}
+	}
+
 	if err := s.AddClusters([]*envoy_api_v2.Cluster{{Name: "a"}}); err != nil {
 		t.Fatalf("adding cluster 'a': %v", err)
 	}
@@ -59,7 +63,7 @@ func TestCDSFlow(t *testing.T) {
 	stream := fakexds.NewStream(ctx)
 	go func() {
 		err := s.StreamClusters(stream)
-		close(s.ackCh)
+		close(ackCh)
 		doneCh <- err
 	}()
 
@@ -79,7 +83,7 @@ func TestCDSFlow(t *testing.T) {
 	}
 	goodVersion := res.GetVersionInfo()
 	select {
-	case <-s.ackCh:
+	case <-ackCh:
 	case <-ctx.Done():
 		t.Fatal("context done while waiting for 1st ack")
 	}
@@ -102,7 +106,7 @@ func TestCDSFlow(t *testing.T) {
 		t.Fatalf("sending NACK failed: %v", err)
 	}
 	select {
-	case <-s.ackCh:
+	case <-ackCh:
 	case <-ctx.Done():
 		t.Fatal("context done while waiting for 2nd ack")
 	}
@@ -114,7 +118,7 @@ func TestCDSFlow(t *testing.T) {
 }
 
 func TestConfigAsYAML(t *testing.T) {
-	s := NewServer()
+	s := NewServer("test")
 	err := s.AddClusters([]*envoy_api_v2.Cluster{
 		{
 			Name: "foo",

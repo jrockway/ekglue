@@ -32,15 +32,13 @@ func main() {
 	server.AddFlagGroup("ekglue", f)
 	kf := new(kflags)
 	server.AddFlagGroup("Kubernetes", kf)
+	server.Setup()
 
-	svc := xds.NewServer()
+	svc := xds.NewServer(f.VersionPrefix)
 	server.AddService(func(s *grpc.Server) {
 		envoy_api_v2.RegisterClusterDiscoveryServiceServer(s, svc)
 	})
 	http.Handle("/config_dump", svc)
-
-	server.Setup()
-	svc.VersionPrefix = f.VersionPrefix
 
 	var watcher *k8s.ClusterWatcher
 	if kf.Kubeconfig != "" || kf.Master != "" {
