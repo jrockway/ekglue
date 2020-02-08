@@ -14,6 +14,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jrockway/opinionated-server/server"
 	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
@@ -268,9 +269,13 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			return
 		}
 		l.Info("pushing updated resources", zap.String("version", res.GetVersionInfo()), zap.String("nonce", res.GetNonce()), zap.Int("resource_count", len(res.Resources)))
-		span := opentracing.StartSpan("xds_push")
+		span := opentracing.StartSpan("xds_push", ext.SpanKindProducer)
+		ext.PeerService.Set(span, node)
+		span.SetTag("xds_type", m.Type)
+		span.SetTag("xds_version", res.GetVersionInfo())
 		txs[res.GetNonce()] = &tx{span: span, version: res.GetVersionInfo(), nonce: res.GetNonce()}
 		resCh <- res
+		span.LogEvent("sent")
 	}
 
 	// handleTx handles an acknowledgement
@@ -278,6 +283,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 		var ack bool
 		origVersion, version := t.version, req.GetVersionInfo()
 		if err := req.GetErrorDetail(); err != nil {
+			ext.LogError(t.span, errors.New(err.GetMessage()))
 			l.Error("envoy rejected configuration", zap.Any("error", err), zap.String("version.rejected", origVersion), zap.String("version.in_use", version))
 			xdsConfigAcceptanceStatus.WithLabelValues(m.Name, m.Type, origVersion, "NACK").Inc()
 		} else {
@@ -288,6 +294,11 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 				l.Warn("envoy acknowledged a config version that does not correspond to what we sent", zap.String("version.in_use", version), zap.String("version.sent", origVersion))
 			}
 		}
+		status := "NACK"
+		if ack {
+			status = "ACK"
+		}
+		t.span.SetTag("status", status)
 
 		if f := m.OnAck; f != nil {
 			f(Acknowledgment{
@@ -296,6 +307,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 				Version: version,
 			})
 		}
+		t.span.Finish()
 		delete(txs, req.GetResponseNonce())
 	}
 

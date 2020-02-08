@@ -8,7 +8,7 @@ require (
 	github.com/golang/protobuf v1.3.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0
 	github.com/jrockway/opinionated-server v0.0.4
-	github.com/opentracing/opentracing-go v1.1.0
+	github.com/opentracing/opentracing-go v1.1.1-0.20200124165624-2876d2018785
 	github.com/prometheus/client_golang v1.3.0
 	go.uber.org/zap v1.13.0
 	google.golang.org/genproto v0.0.0-20190819201941-24fa4b261c55
