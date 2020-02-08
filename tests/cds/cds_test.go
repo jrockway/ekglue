@@ -15,7 +15,7 @@ import (
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
 	"github.com/golang/protobuf/ptypes"
-	"github.com/jrockway/ekglue/pkg/xds"
+	"github.com/jrockway/ekglue/pkg/cds"
 	"google.golang.org/grpc"
 )
 
@@ -85,7 +85,7 @@ func TestCDS(t *testing.T) {
 	gs := grpc.NewServer()
 	go gs.Serve(gl)
 
-	cds := xds.NewServer("cds-test-")
+	cds := cds.NewServer("cds-test-")
 	envoy_api_v2.RegisterClusterDiscoveryServiceServer(gs, cds)
 
 	// Start Envoy.

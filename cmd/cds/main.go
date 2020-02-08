@@ -5,9 +5,9 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/jrockway/ekglue/pkg/cds"
 	"github.com/jrockway/ekglue/pkg/glue"
 	"github.com/jrockway/ekglue/pkg/k8s"
-	"github.com/jrockway/ekglue/pkg/xds"
 	"github.com/jrockway/opinionated-server/server"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -34,7 +34,7 @@ func main() {
 	server.AddFlagGroup("Kubernetes", kf)
 	server.Setup()
 
-	svc := xds.NewServer(f.VersionPrefix)
+	svc := cds.NewServer(f.VersionPrefix)
 	server.AddService(func(s *grpc.Server) {
 		envoy_api_v2.RegisterClusterDiscoveryServiceServer(s, svc)
 	})

@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jrockway/ekglue/pkg/cds"
 	"github.com/jrockway/ekglue/pkg/glue"
 	"github.com/jrockway/ekglue/pkg/k8s"
-	"github.com/jrockway/ekglue/pkg/xds"
 	"k8s.io/klog"
 )
 
@@ -38,7 +38,7 @@ func main() {
 		cfg = glue.DefaultConfig()
 	}
 
-	server := xds.NewServer("ekglue-dump-config")
+	server := cds.NewServer("ekglue-dump-config")
 	store := cfg.ClusterConfig.Store(server)
 	if err := w.ListServices(store); err != nil {
 		klog.Fatalf("list services: %v", err)

@@ -15,7 +15,7 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
-	"github.com/jrockway/ekglue/pkg/xds"
+	"github.com/jrockway/ekglue/pkg/cds"
 	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
@@ -201,12 +201,12 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 // clusters to the xDS server.
 type ClusterStore struct {
 	cfg *ClusterConfig
-	s   *xds.Server
+	s   *cds.Server
 }
 
 // Store returns a cache.Store that allows a Kubernetes reflector to sync service changes to a CDS
 // server.
-func (c *ClusterConfig) Store(s *xds.Server) *ClusterStore {
+func (c *ClusterConfig) Store(s *cds.Server) *ClusterStore {
 	return &ClusterStore{
 		cfg: c,
 		s:   s,

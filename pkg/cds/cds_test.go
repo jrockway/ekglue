@@ -1,4 +1,4 @@
-package xds
+package cds
 
 import (
 	"context"
@@ -16,7 +16,8 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/golang/protobuf/ptypes"
-	"github.com/jrockway/ekglue/pkg/xds/internal/fakexds"
+	"github.com/jrockway/ekglue/pkg/cds/internal/fakexds"
+	"github.com/jrockway/ekglue/pkg/xds"
 	"google.golang.org/genproto/googleapis/rpc/status"
 )
 
@@ -48,7 +49,7 @@ func clustersFromResponse(res *envoy_api_v2.DiscoveryResponse) ([]string, error)
 func TestCDSFlow(t *testing.T) {
 	s := NewServer("test")
 	ackCh := make(chan struct{})
-	s.cm.OnAck = func(a Acknowledgment) {
+	s.cm.OnAck = func(a xds.Acknowledgment) {
 		ackCh <- struct{}{}
 	}
 

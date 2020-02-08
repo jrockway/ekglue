@@ -1,5 +1,5 @@
-// Package xds implements a CDS and EDS server.
-package xds
+// Package cds implements a CDS server.
+package cds
 
 import (
 	"net/http"
@@ -9,8 +9,19 @@ import (
 	envoy_config_bootstrap_v2 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v2"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/jrockway/ekglue/pkg/xds"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
+)
+
+var (
+	// Number of Envoy instances with an open CDS stream.
+	cdsClientsStreaming = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "cds_active_stream_count",
+		Help: "The number of clients connected and streaming cluster updates.",
+	})
 )
 
 // cdsSession represents an RPC stream subscribed to cluster updates.
@@ -22,21 +33,17 @@ type Server struct {
 	// for those methods, and any future protocols that are added.
 	envoy_api_v2.UnimplementedClusterDiscoveryServiceServer
 
-	cm *Manager
+	cm *xds.Manager
 }
 
 // NewServer returns a new server that is ready to serve.
 func NewServer(versionPrefix string) *Server {
-	m, err := NewManager("clusters", versionPrefix, &envoy_api_v2.Cluster{})
-	if err != nil {
-		panic(err)
-	}
 	return &Server{
-		cm: m,
+		cm: xds.NewManager("clusters", versionPrefix, &envoy_api_v2.Cluster{}),
 	}
 }
 
-func resourcesToClusters(rs []Resource) []*envoy_api_v2.Cluster {
+func resourcesToClusters(rs []xds.Resource) []*envoy_api_v2.Cluster {
 	result := make([]*envoy_api_v2.Cluster, len(rs))
 	for i, r := range rs {
 		result[i] = r.(*envoy_api_v2.Cluster)
@@ -45,8 +52,8 @@ func resourcesToClusters(rs []Resource) []*envoy_api_v2.Cluster {
 }
 
 // who needs generics when we have for loops!?
-func clustersToResources(cs []*envoy_api_v2.Cluster) []Resource {
-	result := make([]Resource, len(cs))
+func clustersToResources(cs []*envoy_api_v2.Cluster) []xds.Resource {
+	result := make([]xds.Resource, len(cs))
 	for i, c := range cs {
 		result[i] = c
 	}
