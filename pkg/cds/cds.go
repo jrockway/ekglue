@@ -24,9 +24,6 @@ var (
 	})
 )
 
-// cdsSession represents an RPC stream subscribed to cluster updates.
-type cdsSession chan struct{}
-
 // Server is a CDS server.
 type Server struct {
 	// We do not implement the GRPC_DELTA or REST protocols.  We include this to pick up stubs
