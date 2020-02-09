@@ -37,8 +37,17 @@ var (
 // Resource is an xDS resource, like envoy_api_v2.Cluster, etc.
 type Resource interface {
 	proto.Message
-	GetName() string
 	Validate() error
+}
+
+func resourceName(r Resource) string {
+	if x, ok := r.(interface{ GetName() string }); ok {
+		return x.GetName()
+	}
+	if x, ok := r.(interface{ GetClusterName() string }); ok {
+		return x.GetClusterName()
+	}
+	panic(fmt.Sprintf("unable to name resource %v", r))
 }
 
 // Session is a channel that receives notifications when the managed resources change.
@@ -127,7 +136,7 @@ func (m *Manager) Add(rs []Resource) error {
 	m.Lock()
 	defer m.Unlock()
 	for _, r := range rs {
-		n := r.GetName()
+		n := resourceName(r)
 		if err := r.Validate(); err != nil {
 			return fmt.Errorf("%q: %w", n, err)
 		}
@@ -147,7 +156,7 @@ func (m *Manager) Add(rs []Resource) error {
 func (m *Manager) Replace(rs []Resource) error {
 	for _, r := range rs {
 		if err := r.Validate(); err != nil {
-			return fmt.Errorf("%q: %w", r.GetName(), err)
+			return fmt.Errorf("%q: %w", resourceName(r), err)
 		}
 	}
 	m.Lock()
@@ -155,7 +164,7 @@ func (m *Manager) Replace(rs []Resource) error {
 	old := m.resources
 	m.resources = make(map[string]Resource)
 	for _, r := range rs {
-		n := r.GetName()
+		n := resourceName(r)
 		if _, overwrote := old[n]; overwrote {
 			m.Logger.Info("resource updated", zap.String("name", n))
 			delete(old, n)
@@ -188,7 +197,7 @@ func (m *Manager) ListKeys() []string {
 	defer m.Unlock()
 	result := make([]string, 0, len(m.resources))
 	for _, r := range m.resources {
-		result = append(result, r.GetName())
+		result = append(result, resourceName(r))
 	}
 	sort.Strings(result)
 	return result
@@ -203,7 +212,7 @@ func (m *Manager) List() []Resource {
 		result = append(result, r)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].GetName() < result[j].GetName()
+		return resourceName(result[i]) < resourceName(result[j])
 	})
 	return result
 }
