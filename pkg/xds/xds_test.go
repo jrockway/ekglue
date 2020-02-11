@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
+	"sigs.k8s.io/yaml"
 )
 
 func TestManager(t *testing.T) {
@@ -166,7 +167,28 @@ func TestManager(t *testing.T) {
 	cancel()
 	select {
 	case <-time.After(time.Second):
-		t.Fatal("streaem did not exit")
+		t.Fatal("stream did not exit")
 	case <-errCh:
+	}
+}
+
+func TestConfigAsYAML(t *testing.T) {
+	s := NewManager("test", "", &envoy_api_v2.Cluster{})
+	err := s.Add([]Resource{&envoy_api_v2.Cluster{Name: "foo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := s.ConfigAsYAML(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, err := yaml.YAMLToJSON(bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := `{"resources":[{"name":"foo"}]}`
+	if got := string(js); got != want {
+		t.Errorf("yaml:\n  got: %v\n want: %v", got, want)
 	}
 }

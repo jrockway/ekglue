@@ -56,8 +56,6 @@ func (o *ClusterOverride) UnmarshalJSON(b []byte) error {
 }
 
 type ClusterConfig struct {
-	//NameTemplate string `json:"name_template"`
-
 	// The base configuration that should be used for all clusters.
 	BaseConfig *envoy_api_v2.Cluster `json:"base"`
 	// Any rule-based overrides.
@@ -76,8 +74,13 @@ func (c *ClusterConfig) UnmarshalJSON(b []byte) error {
 
 	base := &envoy_api_v2.Cluster{}
 	if err := jsonpb.UnmarshalString(string(tmp.BaseConfig), base); err != nil {
-		return fmt.Errorf("ClusterConfig: unmarshal BaseConfig: %w", err)
+		return fmt.Errorf("ClusterConfig: unmarshal BaseConfig %s: %w", tmp.BaseConfig, err)
 	}
+	base.Name = "XXX" // required for validation, but we will always add it ourselves later
+	if err := base.Validate(); err != nil {
+		return fmt.Errorf("ClusterConfig: validate config base: %w", err)
+	}
+	base.Name = ""
 	c.BaseConfig = base
 	return nil
 }
@@ -170,6 +173,14 @@ func singleTargetLoadAssignment(cluster, hostname string, port int32) *envoy_api
 	}
 }
 
+func (c *ClusterConfig) isEDS(cl *envoy_api_v2.Cluster) bool {
+	dtype := cl.GetClusterDiscoveryType()
+	if dtype == nil {
+		return false
+	}
+	return cl.GetType() == envoy_api_v2.Cluster_EDS
+}
+
 // ClustersFromService translates a Kubernetes service into a set of Envoy clusters according to the
 // config (1 cluster per service port).
 func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Cluster {
@@ -184,12 +195,16 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 			n = strconv.Itoa(int(port.Port))
 		}
 		cl.Name = fmt.Sprintf("%s:%s:%s", svc.GetNamespace(), svc.GetName(), n)
-		if cl.ClusterDiscoveryType == nil {
-			cl.ClusterDiscoveryType = &envoy_api_v2.Cluster_Type{
-				Type: envoy_api_v2.Cluster_STRICT_DNS,
+
+		if !c.isEDS(cl) {
+			if cl.ClusterDiscoveryType == nil {
+				cl.ClusterDiscoveryType = &envoy_api_v2.Cluster_Type{
+					Type: envoy_api_v2.Cluster_STRICT_DNS,
+				}
 			}
+			cl.LoadAssignment = singleTargetLoadAssignment(cl.Name, fmt.Sprintf("%s.%s.svc.cluster.local.", svc.GetName(), svc.GetNamespace()), port.Port)
 		}
-		cl.LoadAssignment = singleTargetLoadAssignment(cl.Name, fmt.Sprintf("%s.%s.svc.cluster.local.", svc.GetName(), svc.GetNamespace()), port.Port)
+
 		proto.Merge(cl, c.GetOverride(cl, svc, port))
 		result = append(result, cl)
 	}

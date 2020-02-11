@@ -2,12 +2,15 @@ package xds
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"sync"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/any"
@@ -18,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
+	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -355,4 +359,97 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			sendUpdate()
 		}
 	}
+}
+
+// XDSStream is the API shared among all envoy_api_v2.[type]DiscoveryService_Stream[type]Server
+// streams.
+type XDSStream interface {
+	Context() context.Context
+	Recv() (*envoy_api_v2.DiscoveryRequest, error)
+	Send(*envoy_api_v2.DiscoveryResponse) error
+}
+
+// StreamGRPC adapts a gRPC stream of DiscoveryRequest -> DiscoveryResponse to the API required by
+// the Stream function.
+func (m *Manager) StreamGRPC(stream XDSStream) error {
+
+	ctx := stream.Context()
+	l := ctxzap.Extract(ctx)
+	reqCh := make(chan *envoy_api_v2.DiscoveryRequest)
+	resCh := make(chan *envoy_api_v2.DiscoveryResponse)
+	errCh := make(chan error)
+
+	go func() {
+		for {
+			req, err := stream.Recv()
+			if err != nil {
+				close(reqCh)
+				return
+			}
+			reqCh <- req
+		}
+	}()
+
+	go func() {
+		for {
+			res, ok := <-resCh
+			if !ok {
+				return
+			}
+			if err := stream.Send(res); err != nil {
+				l.Debug("error writing message to stream", zap.Error(err))
+			}
+		}
+	}()
+
+	go func() { errCh <- m.Stream(ctx, reqCh, resCh) }()
+	err := <-errCh
+	close(resCh)
+	close(errCh)
+	return err
+}
+
+// ConfigAsYAML dumps the currently-tracked resources as YAML.
+func (m *Manager) ConfigAsYAML(verbose bool) ([]byte, error) {
+	rs := m.List()
+	sort.Slice(rs, func(i, j int) bool {
+		return resourceName(rs[i]) < resourceName(rs[j])
+	})
+
+	list := struct {
+		Resources []json.RawMessage `json:"resources"`
+	}{}
+	jsonm := &jsonpb.Marshaler{EmitDefaults: verbose, OrigName: true}
+	for _, r := range rs {
+		j, err := jsonm.MarshalToString(r)
+		if err != nil {
+			return nil, err
+		}
+		list.Resources = append(list.Resources, []byte(j))
+	}
+	js, err := json.Marshal(list)
+	if err != nil {
+		return nil, err
+	}
+
+	ya, err := yaml.JSONToYAML([]byte(js))
+	if err != nil {
+		return nil, err
+	}
+	return ya, nil
+
+}
+
+// ServeHTTP dumps the currently-tracked resources as YAML.
+//
+// It will normally omit defaults, but with "?verbose" in the query params, it will print those too.
+func (s *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	_, verbose := req.URL.Query()["verbose"]
+	ya, err := s.ConfigAsYAML(verbose)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(ya)
 }

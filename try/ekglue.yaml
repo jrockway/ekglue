@@ -1,0 +1,13 @@
+apiVersion: v1alpha
+cluster_config:
+    base:
+        connect_timeout: 1s
+        lb_policy: RANDOM
+        type: EDS
+        eds_cluster_config:
+            eds_config:
+                api_config_source:
+                    api_type: GRPC
+                    transport_api_version: V2
+                    grpc_services:
+                        - envoy_grpc: { cluster_name: cds }

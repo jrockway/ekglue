@@ -37,8 +37,10 @@ func main() {
 	svc := cds.NewServer(f.VersionPrefix)
 	server.AddService(func(s *grpc.Server) {
 		envoy_api_v2.RegisterClusterDiscoveryServiceServer(s, svc)
+		envoy_api_v2.RegisterEndpointDiscoveryServiceServer(s, svc)
 	})
-	http.Handle("/config_dump", svc)
+	http.Handle("/clusters", svc.Clusters)
+	http.Handle("/endpoints", svc.Endpoints)
 
 	var watcher *k8s.ClusterWatcher
 	if kf.Kubeconfig != "" || kf.Master != "" {
@@ -65,7 +67,11 @@ func main() {
 			zap.L().Fatal("problem reading config file", zap.String("filename", filename), zap.Error(err))
 		}
 	}
-	go watcher.WatchServices(context.Background(), cfg.ClusterConfig.Store(svc))
+	go func() {
+		if err := watcher.WatchServices(context.Background(), cfg.ClusterConfig.Store(svc)); err != nil {
+			zap.L().Fatal("service watch unexpectedly exited", zap.Error(err))
+		}
+	}()
 
 	server.ListenAndServe()
 }

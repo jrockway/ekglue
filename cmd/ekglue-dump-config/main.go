@@ -43,7 +43,7 @@ func main() {
 	if err := w.ListServices(store); err != nil {
 		klog.Fatalf("list services: %v", err)
 	}
-	bytes, err := server.ConfigAsYAML(*verbose)
+	bytes, err := server.Clusters.ConfigAsYAML(*verbose)
 	if err != nil {
 		klog.Fatalf("dump yaml: %v", err)
 	}
