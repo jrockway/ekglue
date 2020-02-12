@@ -36,11 +36,13 @@ func get(t *testing.T, url string) error {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
+		t.Logf("ping envoy: attempt %d: ok", i)
 		if got, want := res.StatusCode, http.StatusOK; got != want {
-			t.Logf("ping envoy: attempt %d: status code %d", i, got)
+			t.Logf("get %v: attempt %d: status code %d", url, i, got)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
+		t.Logf("get %v: attempt %d: ok", url, i)
 		ok = true
 		break
 	}
@@ -89,7 +91,7 @@ func TestCDS(t *testing.T) {
 	envoy_api_v2.RegisterClusterDiscoveryServiceServer(gs, cds)
 
 	// Start Envoy.
-	cmd := exec.Command(envoy, "-c", "envoy.yaml", "-l", "warning")
+	cmd := exec.Command(envoy, "-c", "envoy-cds-only.yaml", "-l", "warning")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
