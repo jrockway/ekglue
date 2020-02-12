@@ -147,8 +147,6 @@ func (c *ClusterConfig) GetOverride(cluster *envoy_api_v2.Cluster, svc *v1.Servi
 	return base
 }
 
-// this is not a logical factoring of this operation, it's strictly for convenience, laziness, and
-// other bad reasons.
 func singleTargetLoadAssignment(cluster, hostname string, port int32) *envoy_api_v2.ClusterLoadAssignment {
 	return &envoy_api_v2.ClusterLoadAssignment{
 		ClusterName: cluster,

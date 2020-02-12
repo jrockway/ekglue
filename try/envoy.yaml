@@ -1,9 +1,10 @@
 node:
-    id: try
+    id: try-0
     cluster: try
     locality:
-        region: localhost
-        zone: localhost
+        region: earth
+        zone: localdomain
+        sub_zone: localhost
 admin:
     access_log_path: /dev/null
     address:
@@ -35,8 +36,10 @@ static_resources:
                                               body:
                                                   inline_string: "Hello from Envoy"
                                         - match: { prefix: "/proxy/" }
-                                          route: { cluster: "test" }
-                              validate_clusters: false
+                                          route:
+                                              cluster: "foo"
+                                              prefix_rewrite: "/"
+                              validate_clusters: true
                           http_filters:
                               - name: envoy.router
     clusters:
@@ -60,6 +63,10 @@ static_resources:
         - name: foo
           connect_timeout: 1s
           type: EDS
+          common_lb_config:
+              zone_aware_lb_config:
+                  routing_enabled: 100
+                  min_cluster_size: 2
           eds_cluster_config:
               eds_config:
                   api_config_source:
