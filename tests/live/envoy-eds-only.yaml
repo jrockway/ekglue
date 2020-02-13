@@ -1,0 +1,78 @@
+node:
+    id: tests
+    cluster: tests
+    locality:
+        region: localhost
+        zone: localhost
+static_resources:
+    listeners:
+        - name: test
+          address:
+              socket_address:
+                  protocol: TCP
+                  address: 127.0.0.1
+                  port_value: 9091
+          filter_chains:
+              - filters:
+                    - name: envoy.http_connection_manager
+                      typed_config:
+                          "@type": type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager
+                          stat_prefix: test
+                          route_config:
+                              virtual_hosts:
+                                  - name: test
+                                    domains: ["*"]
+                                    routes:
+                                        - match: { prefix: "/ping" }
+                                          direct_response:
+                                              status: 200
+                                              body:
+                                                  inline_string: "Hello from Envoy"
+                                        - match: { prefix: "/proxy/" }
+                                          route: { cluster: "test" }
+                          http_filters:
+                              - name: envoy.router
+    clusters:
+        - name: xds
+          connect_timeout: 1s
+          type: STATIC
+          lb_policy: RANDOM
+          http2_protocol_options: {}
+          upstream_connection_options:
+              tcp_keepalive: {}
+          health_checks:
+              - timeout: 1s
+                interval: 10s
+                healthy_threshold: 1
+                unhealthy_threshold: 1
+                grpc_health_check: {}
+          load_assignment:
+              cluster_name: xds
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 127.0.0.1
+                                      port_value: 9090
+        - name: test
+          connect_timeout: 1s
+          type: EDS
+          lb_policy: RANDOM
+          upstream_connection_options:
+              tcp_keepalive: {}
+          health_checks:
+              - timeout: 1s
+                interval: 10s
+                healthy_threshold: 1
+                unhealthy_threshold: 1
+                tcp_health_check: {}
+          eds_cluster_config:
+              eds_config:
+                  initial_fetch_timeout: 1s
+                  api_config_source:
+                      api_type: GRPC
+                      transport_api_version: V2
+                      grpc_services:
+                          envoy_grpc:
+                              cluster_name: xds
