@@ -141,6 +141,53 @@ func TestClustersFromService(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "cluster with EDS discovery",
+			service: &v1.Service{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Service",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "eds",
+					Namespace: "foo",
+				},
+				Spec: v1.ServiceSpec{
+					Ports: []v1.ServicePort{
+						{
+							Name: "http",
+							Port: 80,
+						},
+					},
+				},
+			},
+			want: []*envoy_api_v2.Cluster{
+				{
+					Name:           "foo:eds:http",
+					ConnectTimeout: ptypes.DurationProto(time.Second),
+					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
+						Type: envoy_api_v2.Cluster_EDS,
+					},
+					EdsClusterConfig: &envoy_api_v2.Cluster_EdsClusterConfig{
+						EdsConfig: &envoy_api_v2_core.ConfigSource{
+							ConfigSourceSpecifier: &envoy_api_v2_core.ConfigSource_ApiConfigSource{
+								ApiConfigSource: &envoy_api_v2_core.ApiConfigSource{
+									ApiType:             envoy_api_v2_core.ApiConfigSource_GRPC,
+									TransportApiVersion: envoy_api_v2_core.ApiVersion_V2,
+									GrpcServices: []*envoy_api_v2_core.GrpcService{{
+										TargetSpecifier: &envoy_api_v2_core.GrpcService_EnvoyGrpc_{
+											EnvoyGrpc: &envoy_api_v2_core.GrpcService_EnvoyGrpc{
+												ClusterName: "xds",
+											},
+										},
+									}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	cfg, err := LoadConfig("testdata/clusters_from_service_test.yaml")

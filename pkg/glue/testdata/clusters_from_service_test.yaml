@@ -21,3 +21,15 @@ cluster_config:
                         host: "test"
                         path: "/healthz"
                         codec_client_type: HTTP2
+        - match:
+              - cluster_name: foo:eds:http
+          override:
+              type: EDS
+              eds_cluster_config:
+                  eds_config:
+                      api_config_source:
+                          api_type: GRPC
+                          transport_api_version: V2
+                          grpc_services:
+                              - envoy_grpc:
+                                    cluster_name: xds
