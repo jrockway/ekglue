@@ -53,15 +53,40 @@ func (cw *ClusterWatcher) WatchServices(ctx context.Context, s cache.Store) erro
 	return nil
 }
 
-// ListServices sends all services to the provided cache.Store
+// ListServices sends all services to the provided cache.Store.
 func (cw *ClusterWatcher) ListServices(s cache.Store) error {
 	lw := cache.NewListWatchFromClient(cw.coreV1Client, "services", "", fields.Everything())
 	raw, err := lw.List(metav1.ListOptions{})
 	if err != nil {
-		return err
+		return fmt.Errorf("list: %v", err)
 	}
 	for _, svc := range raw.(*v1.ServiceList).Items {
-		s.Add(&svc)
+		if err := s.Add(&svc); err != nil {
+			return fmt.Errorf("add service: %v", err)
+		}
+	}
+	return nil
+}
+
+// WatchEndpoints notifes the provided EndpointReceiver of changes to endpoints, in all namespaces.
+func (cw *ClusterWatcher) WatchEndpoints(ctx context.Context, s cache.Store) error {
+	lw := cache.NewListWatchFromClient(cw.coreV1Client, "endpoints", "", fields.Everything())
+	r := cache.NewReflector(lw, &v1.Endpoints{}, s, 0)
+	r.Run(ctx.Done())
+	return nil
+}
+
+// ListEndpoints sends all endpoints to the provided cache.Store.
+func (cw *ClusterWatcher) ListEndpoints(s cache.Store) error {
+	lw := cache.NewListWatchFromClient(cw.coreV1Client, "endpoints", "", fields.Everything())
+	raw, err := lw.List(metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("list: %v", err)
+	}
+	for _, svc := range raw.(*v1.EndpointsList).Items {
+		if err := s.Add(&svc); err != nil {
+			return fmt.Errorf("add endpoint: %v", err)
+		}
 	}
 	return nil
 }

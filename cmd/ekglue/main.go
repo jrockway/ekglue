@@ -72,6 +72,11 @@ func main() {
 			zap.L().Fatal("service watch unexpectedly exited", zap.Error(err))
 		}
 	}()
+	go func() {
+		if err := watcher.WatchEndpoints(context.Background(), cfg.EndpointConfig.Store(svc)); err != nil {
+			zap.L().Fatal("endpoints watch unexpectedly exited", zap.Error(err))
+		}
+	}()
 
 	server.ListenAndServe()
 }

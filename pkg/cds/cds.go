@@ -55,6 +55,22 @@ func clustersToResources(cs []*envoy_api_v2.Cluster) []xds.Resource {
 	return result
 }
 
+func resourcesToLoadAssignments(rs []xds.Resource) []*envoy_api_v2.ClusterLoadAssignment {
+	result := make([]*envoy_api_v2.ClusterLoadAssignment, len(rs))
+	for i, r := range rs {
+		result[i] = r.(*envoy_api_v2.ClusterLoadAssignment)
+	}
+	return result
+}
+
+func loadAssignmentsToResources(cs []*envoy_api_v2.ClusterLoadAssignment) []xds.Resource {
+	result := make([]xds.Resource, len(cs))
+	for i, c := range cs {
+		result[i] = c
+	}
+	return result
+}
+
 // ListClusters returns the clusters that we are managing.  Meant to mirror kubernetes's cache.Store
 // API.
 func (s *Server) ListClusters() []*envoy_api_v2.Cluster {
@@ -76,7 +92,26 @@ func (s *Server) ReplaceClusters(cs []*envoy_api_v2.Cluster) error {
 	return s.Clusters.Replace(clustersToResources(cs))
 }
 
-// feedXDS pipes discovery requests/responses from the gRPC API to
+// ListEndpoints returns the load assigments / endpoints that we are managing.
+func (s *Server) ListEndpoints() []*envoy_api_v2.ClusterLoadAssignment {
+	return resourcesToLoadAssignments(s.Endpoints.List())
+}
+
+// AddEndpoints adds or updates endpoints, and notifies all connected clients of the change.
+func (s *Server) AddEndpoints(es []*envoy_api_v2.ClusterLoadAssignment) error {
+	return s.Endpoints.Add(loadAssignmentsToResources(es))
+}
+
+// DeleteEndpoints deletes a load assignment by name, and notifies all connected clients of the
+// change.  A load assignemnt may contain many endpoints, this deletes them all.
+func (s *Server) DeleteEndpoints(name string) {
+	s.Endpoints.Delete(name)
+}
+
+// ReplaceEndpoints replaces all load assignments with a new set of load assignments.
+func (s *Server) ReplaceEndpoints(es []*envoy_api_v2.ClusterLoadAssignment) error {
+	return s.Endpoints.Replace(loadAssignmentsToResources(es))
+}
 
 // StreamClusters implements CDS.
 func (s *Server) StreamClusters(stream envoy_api_v2.ClusterDiscoveryService_StreamClustersServer) error {

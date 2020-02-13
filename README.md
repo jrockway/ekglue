@@ -17,9 +17,9 @@ is probably good enough for your Envoy configuration, and in complex cases, you 
 a full service mesh like [Istio](https://istio.io/). This exists for the medium-sized case, where
 you are manually writing Envoy configurations, but want to grab your clusters from an API instead of
 typing the details into your configuration. Beyond saving you typing, using a native xDS service
-discovery API server allows us to provide Envoy with locality information, to support locality-aware
-load balancing. This can save you money on inter-AZ network traffic, and save your users time with
-lower network latency after their request arrives at your front proxy.
+discovery API server allows us to provide Envoy with locality information in support of
+locality-aware load balancing. This can save you money on inter-AZ network traffic, and save your
+users time with lower network latency between your proxy and the backend.
 
 ## Known Limitations and Gotchas
 
@@ -42,6 +42,8 @@ programming Envoy with the Pod endpoints directly. To avoid confusing yourself, 
 using any plain services by setting clusterIP to None for all of them.
 
 It is possible, with the right set of overrides on `default:kubernetes:443`, to end up with a route
-to your Kubernetes API server authenticated automatically with the service account that runs Envoy's
-certs. You'd have to do a lot of work to make it happen, but all the tools are available. Don't
-bridge that to the Internet or you will be mining a lot of cryptocoins in short order.
+to your Kubernetes API server authenticated automatically with the service account that runs Envoy.
+You'd have to do a lot of work to make it happen, but all the tools are available. Don't bridge that
+to the Internet or you will be mining a lot of cryptocoins in short order.
+
+Right now, all UDP ports are filtered out of EDS. See #3.

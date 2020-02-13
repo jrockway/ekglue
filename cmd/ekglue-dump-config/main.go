@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -39,13 +40,20 @@ func main() {
 	}
 
 	server := cds.NewServer("ekglue-dump-config")
-	store := cfg.ClusterConfig.Store(server)
-	if err := w.ListServices(store); err != nil {
+	if err := w.ListEndpoints(cfg.EndpointConfig.Store(server)); err != nil {
+		klog.Fatalf("list endpoints: %v", err)
+	}
+	if err := w.ListServices(cfg.ClusterConfig.Store(server)); err != nil {
 		klog.Fatalf("list services: %v", err)
 	}
-	bytes, err := server.Clusters.ConfigAsYAML(*verbose)
+	epBytes, err := server.Endpoints.ConfigAsYAML(*verbose)
 	if err != nil {
 		klog.Fatalf("dump yaml: %v", err)
 	}
-	fmt.Printf("%s\n", bytes)
+	cBytes, err := server.Clusters.ConfigAsYAML(*verbose)
+	if err != nil {
+		klog.Fatalf("dump yaml: %v", err)
+	}
+	fmt.Printf("%s\n", bytes.TrimSpace(epBytes))
+	fmt.Printf("%s\n", bytes.TrimSpace(cBytes))
 }

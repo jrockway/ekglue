@@ -36,6 +36,8 @@ type ClusterOverride struct {
 	Match []*Matcher `json:"match"`
 	// Configuration to override if a matcher matches.
 	Override *envoy_api_v2.Cluster `json:"override"`
+	// TODO(jrockway): Eventually this "override" will have to be some sort of OverrideAction
+	// object that allows suppresing the cluster entirely, etc.
 }
 
 func (o *ClusterOverride) UnmarshalJSON(b []byte) error {
@@ -85,9 +87,18 @@ func (c *ClusterConfig) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type EndpointConfig struct {
+	BaseConfig      *envoy_api_v2.ClusterLoadAssignment
+	IncludeNotReady bool
+}
+
 type Config struct {
-	ApiVersion    string         `json:"apiVersion"`
+	// The API version of this config file; not related to the Envoy dataplane API version.
+	ApiVersion string `json:"apiVersion"`
+	// Configuration for converting services to clusters.
 	ClusterConfig *ClusterConfig `json:"cluster_config"`
+	// Configuration for converting endpoints to cluster load assignments.
+	EndpointConfig *EndpointConfig `json:"endpoint_config"`
 }
 
 func DefaultConfig() *Config {
@@ -114,6 +125,9 @@ func LoadConfig(filename string) (*Config, error) {
 	if err := json.Unmarshal(js, cfg); err != nil {
 		return nil, err
 	}
+	// TODO(jrockway): Future versions of this code will have to first unmarshal into a
+	// temporary structure just to read the ApiVersion, then call version-specific unmarshalling
+	// code based on this value.
 	if v := cfg.ApiVersion; v != "v1alpha" {
 		return nil, fmt.Errorf("unknown config version %q; expected v1alpha", v)
 	}
@@ -151,23 +165,27 @@ func singleTargetLoadAssignment(cluster, hostname string, port int32) *envoy_api
 	return &envoy_api_v2.ClusterLoadAssignment{
 		ClusterName: cluster,
 		Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{{
-			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{{
-				HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
-					Endpoint: &envoy_api_v2_endpoint.Endpoint{
-						Address: &envoy_api_v2_core.Address{
-							Address: &envoy_api_v2_core.Address_SocketAddress{
-								SocketAddress: &envoy_api_v2_core.SocketAddress{
-									Address: hostname,
-									PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
-										PortValue: uint32(port),
-									},
-								},
+			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{lbEndpoint(hostname, port)},
+		}},
+	}
+}
+
+func lbEndpoint(hostname string, port int32) *envoy_api_v2_endpoint.LbEndpoint {
+	return &envoy_api_v2_endpoint.LbEndpoint{
+		HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
+			Endpoint: &envoy_api_v2_endpoint.Endpoint{
+				Address: &envoy_api_v2_core.Address{
+					Address: &envoy_api_v2_core.Address_SocketAddress{
+						SocketAddress: &envoy_api_v2_core.SocketAddress{
+							Address: hostname,
+							PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
+								PortValue: uint32(port),
 							},
 						},
 					},
 				},
-			}},
-		}},
+			},
+		},
 	}
 }
 
@@ -207,6 +225,39 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 	return result
 }
 
+// LoadAssignmentFromEndpoints translates a Kubernetes endpoints object into an Envoy
+// ClusterLoadAssignment.  The returned load assignment is never nil.
+func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envoy_api_v2.ClusterLoadAssignment {
+	endpointsByCluster := make(map[string][]*envoy_api_v2_endpoint.LbEndpoint)
+	for _, ss := range eps.Subsets {
+		for _, port := range ss.Ports {
+			// BUG(#3): We really need to create separate clusters by protocol.
+			if port.Protocol != v1.ProtocolTCP {
+				continue
+			}
+			n := port.Name
+			if n == "" {
+				n = strconv.Itoa(int(port.Port))
+			}
+			cluster := fmt.Sprintf("%s:%s:%s", eps.GetNamespace(), eps.GetName(), n)
+			for _, addr := range ss.Addresses {
+				endpointsByCluster[cluster] = append(endpointsByCluster[cluster], lbEndpoint(addr.IP, port.Port))
+			}
+		}
+	}
+
+	var result []*envoy_api_v2.ClusterLoadAssignment
+	for name, endpoints := range endpointsByCluster {
+		result = append(result, &envoy_api_v2.ClusterLoadAssignment{
+			ClusterName: name,
+			Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{{
+				LbEndpoints: endpoints,
+			}},
+		})
+	}
+	return result
+}
+
 // ClusterStore is a cache.Store that receives updates about the status of Kubernetes services,
 // translates the services to Envoy cluster objects with the provided config, and reports those
 // clusters to the xDS server.
@@ -225,7 +276,7 @@ func (c *ClusterConfig) Store(s *cds.Server) *ClusterStore {
 }
 
 func (cs *ClusterStore) Add(obj interface{}) error {
-	Logger.Debug("Add")
+	Logger.Debug("Add cluster")
 	svc, ok := obj.(*v1.Service)
 	if !ok {
 		return fmt.Errorf("add service: got non-service object %#v", obj)
@@ -236,7 +287,7 @@ func (cs *ClusterStore) Add(obj interface{}) error {
 	return nil
 }
 func (cs *ClusterStore) Update(obj interface{}) error {
-	Logger.Debug("Update")
+	Logger.Debug("Update cluster")
 	svc, ok := obj.(*v1.Service)
 	if !ok {
 		return fmt.Errorf("update service: got non-service object %#v", obj)
@@ -247,7 +298,7 @@ func (cs *ClusterStore) Update(obj interface{}) error {
 	return nil
 }
 func (cs *ClusterStore) Delete(obj interface{}) error {
-	Logger.Debug("Delete")
+	Logger.Debug("Delete cluster")
 	svc, ok := obj.(*v1.Service)
 	if !ok {
 		return fmt.Errorf("delete service: got non-service object %#v", obj)
@@ -259,7 +310,7 @@ func (cs *ClusterStore) Delete(obj interface{}) error {
 	return nil
 }
 func (cs *ClusterStore) List() []interface{} {
-	Logger.Debug("List")
+	Logger.Debug("List cluster")
 	clusters := cs.s.ListClusters()
 	var result []interface{}
 	for _, c := range clusters {
@@ -269,7 +320,7 @@ func (cs *ClusterStore) List() []interface{} {
 }
 
 func (cs *ClusterStore) ListKeys() []string {
-	Logger.Debug("ListKeys")
+	Logger.Debug("ListKeys cluster")
 	clusters := cs.s.ListClusters()
 	var result []string
 	for _, c := range clusters {
@@ -278,15 +329,15 @@ func (cs *ClusterStore) ListKeys() []string {
 	return result
 }
 func (cs *ClusterStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
-	Logger.Debug("Get")
+	Logger.Debug("Get cluster")
 	return nil, false, errors.New("clusterwatcher.Get unimplemented")
 }
 func (cs *ClusterStore) GetByKey(key string) (item interface{}, exists bool, err error) {
-	Logger.Debug("GetByKey")
+	Logger.Debug("GetByKey cluster")
 	return nil, false, errors.New("clusterwatcher.GetByKey unimplemented")
 }
 func (cs *ClusterStore) Replace(objs []interface{}, _ string) error {
-	Logger.Debug("Replace")
+	Logger.Debug("Replace cluster")
 	var clusters []*envoy_api_v2.Cluster
 	for _, obj := range objs {
 		svc, ok := obj.(*v1.Service)
@@ -301,6 +352,95 @@ func (cs *ClusterStore) Replace(objs []interface{}, _ string) error {
 	return nil
 }
 func (cs *ClusterStore) Resync() error {
-	Logger.Debug("Resync")
-	return errors.New("clusterwatcher.Resync unimplemented")
+	// Nothing to do.
+	return nil
+}
+
+// EndpointStore is a cache.Store that receives endpoints and converts them to
+// ClusterLoadAssignment objects for EDS.
+type EndpointStore struct {
+	cfg *EndpointConfig
+	s   *cds.Server
+}
+
+// Store returns a cache.Store that allows a Kubernetes reflector to sync endpoint changes to a CDS
+// server.
+func (c *EndpointConfig) Store(s *cds.Server) *EndpointStore {
+	return &EndpointStore{
+		cfg: c,
+		s:   s,
+	}
+}
+
+func (es *EndpointStore) Add(obj interface{}) error {
+	Logger.Debug("Add endpoints")
+	eps, ok := obj.(*v1.Endpoints)
+	if !ok {
+		return fmt.Errorf("add endpoints: got non-endpoints object: %#v", obj)
+	}
+	if err := es.s.AddEndpoints(es.cfg.LoadAssignmentsFromEndpoints(eps)); err != nil {
+		return fmt.Errorf("add endpoints: %v", err)
+	}
+	return nil
+}
+func (es *EndpointStore) Update(obj interface{}) error {
+	Logger.Debug("Update endpoints")
+	eps, ok := obj.(*v1.Endpoints)
+	if !ok {
+		return fmt.Errorf("update endpoints: got non-endpoints object: %#v", obj)
+	}
+	if err := es.s.AddEndpoints(es.cfg.LoadAssignmentsFromEndpoints(eps)); err != nil {
+		return fmt.Errorf("update endpoints: %v", err)
+	}
+	return nil
+}
+func (es *EndpointStore) Delete(obj interface{}) error {
+	Logger.Debug("Delete endpoints")
+	eps, ok := obj.(*v1.Endpoints)
+	if !ok {
+		return fmt.Errorf("delete endpoints: got non-endpoints object: %#v", obj)
+	}
+	as := es.cfg.LoadAssignmentsFromEndpoints(eps)
+	for _, a := range as {
+		es.s.DeleteEndpoints(a.GetClusterName())
+	}
+	return nil
+}
+func (es *EndpointStore) List() []interface{} {
+	Logger.Debug("List endpoints")
+	// need
+	return nil //result
+}
+
+func (es *EndpointStore) ListKeys() []string {
+	Logger.Debug("ListKeys endpoints")
+	// need
+	return nil //result
+}
+func (es *EndpointStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
+	Logger.Debug("Get endpoints")
+	return nil, false, errors.New("clusterwatcher.Get unimplemented")
+}
+func (es *EndpointStore) GetByKey(key string) (item interface{}, exists bool, err error) {
+	Logger.Debug("GetByKey endpoints")
+	return nil, false, errors.New("clusterwatcher.GetByKey unimplemented")
+}
+func (es *EndpointStore) Replace(objs []interface{}, _ string) error {
+	Logger.Debug("Replace endpoints")
+	var as []*envoy_api_v2.ClusterLoadAssignment
+	for _, obj := range objs {
+		eps, ok := obj.(*v1.Endpoints)
+		if !ok {
+			return fmt.Errorf("replace endpoints: got non-endpoints object: %#v", obj)
+		}
+		as = append(as, es.cfg.LoadAssignmentsFromEndpoints(eps)...)
+	}
+	if err := es.s.ReplaceEndpoints(as); err != nil {
+		return fmt.Errorf("replace endpoints: %v", err)
+	}
+	return nil
+}
+func (es *EndpointStore) Resync() error {
+	// Nothing to do.
+	return nil
 }

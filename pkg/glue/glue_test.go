@@ -268,3 +268,28 @@ func TestLoadConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAssignmentFromEndpoints(t *testing.T) {
+	testData := []struct {
+		name      string
+		endpoints *v1.Endpoints
+		want      []*envoy_api_v2.ClusterLoadAssignment
+	}{
+		{name: "empty"},
+	}
+
+	cfg, err := LoadConfig("testdata/load_assignment_from_endpoints_test.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range testData {
+		t.Run(test.name, func(t *testing.T) {
+			cfg.ClusterConfig.ClustersFromService(nil)
+			// got := cfg.EndpointConfig.LoadAssignmentFromEndpoints(test.endpoints)
+			// if diff := deep.Equal(got, test.want); diff != nil {
+			// 	t.Errorf("endpoints:\n  got: %v\n want: %v\n diff: %v", got, test.want, diff)
+			// }
+		})
+	}
+}
