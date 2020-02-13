@@ -1,4 +1,4 @@
-// Command "cds" runs a gRPC server that serves an Envoy CDS and EDS server.
+// Command "ekglue" runs a gRPC server that serves an Envoy CDS and EDS server.
 package main
 
 import (
