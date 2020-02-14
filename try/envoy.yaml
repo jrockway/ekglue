@@ -65,7 +65,8 @@ static_resources:
           type: EDS
           common_lb_config:
               zone_aware_lb_config:
-                  routing_enabled: 100
+                  routing_enabled:
+                      value: 100.0
                   min_cluster_size: 2
           eds_cluster_config:
               eds_config:
