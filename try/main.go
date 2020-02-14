@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/jrockway/ekglue/pkg/cds"
 	"github.com/jrockway/ekglue/pkg/xds"
@@ -16,6 +17,26 @@ import (
 
 type flags struct {
 	Config string `short:"c" long:"config" env:"EKGLUE_CONFIG_FILE" description:"config file to read"`
+}
+
+func ep(host string, port uint32) *envoy_api_v2_endpoint.LbEndpoint {
+	return &envoy_api_v2_endpoint.LbEndpoint{
+		HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
+			Endpoint: &envoy_api_v2_endpoint.Endpoint{
+				Address: &envoy_api_v2_core.Address{
+					Address: &envoy_api_v2_core.Address_SocketAddress{
+						SocketAddress: &envoy_api_v2_core.SocketAddress{
+							Address: host,
+							PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
+								PortValue: port,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
 }
 
 func main() {
@@ -33,47 +54,22 @@ func main() {
 	http.Handle("/clusters", svc.Clusters)
 	http.Handle("/endpoints", svc.Endpoints)
 
-	// cfg := glue.DefaultConfig()
-	// if filename := f.Config; filename != "" {
-	// 	zap.L().Info("reading config", zap.String("filename", filename))
-	// 	var err error
-	// 	cfg, err = glue.LoadConfig(filename)
-	// 	if err != nil {
-	// 		zap.L().Fatal("problem reading config file", zap.String("filename", filename), zap.Error(err))
-	// 	}
-	// }
-	me := &envoy_api_v2_endpoint.LbEndpoint{
-		HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
-			Endpoint: &envoy_api_v2_endpoint.Endpoint{
-				Address: &envoy_api_v2_core.Address{
-					Address: &envoy_api_v2_core.Address_SocketAddress{
-						SocketAddress: &envoy_api_v2_core.SocketAddress{
-							Address: "127.0.0.1",
-							PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
-								PortValue: 8081,
-							},
-						},
-					},
-				},
-			},
-		},
+	fast := http.Server{
+		Addr: "0.0.0.0:1234",
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("fast"))
+		}),
 	}
-	me2 := &envoy_api_v2_endpoint.LbEndpoint{
-		HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
-			Endpoint: &envoy_api_v2_endpoint.Endpoint{
-				Address: &envoy_api_v2_core.Address{
-					Address: &envoy_api_v2_core.Address_SocketAddress{
-						SocketAddress: &envoy_api_v2_core.SocketAddress{
-							Address: "127.0.0.2",
-							PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
-								PortValue: 8081,
-							},
-						},
-					},
-				},
-			},
-		},
+	slow := http.Server{
+		Addr: "0.0.0.0:1235",
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			time.Sleep(time.Second)
+			w.WriteHeader(http.StatusGatewayTimeout)
+			w.Write([]byte("slow"))
+		}),
 	}
+
 	err := svc.Endpoints.Add([]xds.Resource{
 		&envoy_api_v2.ClusterLoadAssignment{
 			ClusterName: "foo",
@@ -84,7 +80,10 @@ func main() {
 						Zone:    "localdomain",
 						SubZone: "localhost",
 					},
-					LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{me},
+					LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
+						ep("127.0.0.1", 1234),
+						ep("127.0.0.2", 1234),
+					},
 				},
 				{
 					Locality: &envoy_api_v2_core.Locality{
@@ -92,7 +91,10 @@ func main() {
 						Zone:    "afardomain",
 						SubZone: "afarhost",
 					},
-					LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{me2},
+					LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
+						ep("127.0.0.3", 1235),
+						ep("127.0.0.4", 1235),
+					},
 				},
 			},
 		}})
@@ -100,5 +102,7 @@ func main() {
 		zap.L().Fatal("error adding endpoints", zap.Error(err))
 	}
 
+	go fast.ListenAndServe()
+	go slow.ListenAndServe()
 	server.ListenAndServe()
 }

@@ -5,6 +5,8 @@ node:
         region: earth
         zone: localdomain
         sub_zone: localhost
+cluster_manager:
+    local_cluster_name: self
 admin:
     access_log_path: /dev/null
     address:
@@ -43,10 +45,35 @@ static_resources:
                           http_filters:
                               - name: envoy.router
     clusters:
+        - name: self
+          connect_timeout: 1s
+          type: STATIC
+          load_assignment:
+              cluster_name: self
+              endpoints:
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 127.0.0.1
+                                      port_value: 10000
+                    locality:
+                        region: earth
+                        zone: localdomain
+                        sub_zone: localhost
+                  - lb_endpoints:
+                        - endpoint:
+                              address:
+                                  socket_address:
+                                      address: 127.0.0.1
+                                      port_value: 10000
+                    locality:
+                        region: earth
+                        zone: afardomain
+                        sub_zone: afarhost
         - name: cds
           connect_timeout: 1s
           type: STATIC
-          dns_lookup_family: V4_ONLY
           lb_policy: RANDOM
           http2_protocol_options: {}
           upstream_connection_options:
@@ -66,8 +93,8 @@ static_resources:
           common_lb_config:
               zone_aware_lb_config:
                   routing_enabled:
-                      value: 100.0
-                  min_cluster_size: 2
+                      value: 90.0
+                  min_cluster_size: 1
           eds_cluster_config:
               eds_config:
                   api_config_source:
