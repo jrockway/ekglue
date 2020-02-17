@@ -14,6 +14,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/any"
+	"github.com/google/go-cmp/cmp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jrockway/opinionated-server/server"
 	"github.com/opentracing/opentracing-go"
@@ -249,7 +250,7 @@ func (m *Manager) BuildDiscoveryResponse() (*envoy_api_v2.DiscoveryResponse, err
 // Stream manages a client connection.  Requests from the client are read from reqCh, responses are
 // written to resCh, and the function returns when no further progress can be made.
 func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.DiscoveryRequest, resCh chan *envoy_api_v2.DiscoveryResponse) error {
-	l := ctxzap.Extract(ctx)
+	l := ctxzap.Extract(ctx).With(zap.String("xds_type", m.Type))
 
 	// Channel for receiving resource updates.
 	rCh := make(session, 1)
@@ -273,6 +274,9 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 
 	// Node name arrives in the first request, and is used for all subsequent operations.
 	var node string
+
+	// Resources that the client is interested in
+	var resources []string
 
 	// sendUpdate starts a new transaction and sends the current resource list.
 	sendUpdate := func() {
@@ -334,11 +338,21 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			if !ok {
 				return errors.New("request channel closed")
 			}
+			newResources := req.GetResourceNames()
 			if node == "" {
 				node = req.GetNode().GetId()
 				l = l.With(zap.String("envoy.node.id", node))
 				ctx = ctxzap.ToContext(ctx, l)
+				resources = newResources
+				l = l.With(zap.Strings("subscribed_resources", resources))
 			}
+			if diff := cmp.Diff(resources, newResources); diff != "" {
+				// I am pretty sure xDS doesn't allow change the subscribed resource
+				// set, so we warn about attempting to do so.  I guess if we see
+				// this warning, it means that being "pretty sure" was incorrect.
+				zap.L().Warn("envoy changed resource subscriptions without opening a new stream; config will be out of sync", zap.Strings("new_resources", newResources))
+			}
+
 			if t := req.GetTypeUrl(); t != m.Type {
 				l.Warn("ignoring wrong-type discovery request", zap.String("manager_type", m.Type), zap.String("requested_type", t))
 				continue
