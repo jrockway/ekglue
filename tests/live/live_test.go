@@ -14,13 +14,16 @@ import (
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/jrockway/ekglue/pkg/cds"
-	"github.com/jrockway/ekglue/pkg/xds"
+	"github.com/jrockway/ekglue/pkg/glue"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 )
 
 func get(t *testing.T, url string) error {
@@ -56,57 +59,82 @@ func get(t *testing.T, url string) error {
 	return nil
 }
 
-func loadAssignmentForTestServer(addr net.Addr) *envoy_api_v2.ClusterLoadAssignment {
-	httpPort := addr.(*net.TCPAddr).Port
-	return &envoy_api_v2.ClusterLoadAssignment{
-		ClusterName: "test",
-		Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{{
-			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{{
-				HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
-					Endpoint: &envoy_api_v2_endpoint.Endpoint{
-						Address: &envoy_api_v2_core.Address{
+func TestXDS(t *testing.T) {
+	testData := []struct {
+		name, configFile string
+		config           *glue.Config
+		push             func(addr *net.TCPAddr, endpointStore cache.Store, clusterStore cache.Store)
+	}{
+		{
+			name:       "cds cluster with dns endpoint",
+			configFile: "envoy-cds.yaml",
+			config: &glue.Config{
+				ClusterConfig: &glue.ClusterConfig{
+					BaseConfig: &envoy_api_v2.Cluster{
+						ConnectTimeout: ptypes.DurationProto(time.Second),
+						DnsResolvers: []*envoy_api_v2_core.Address{{
 							Address: &envoy_api_v2_core.Address_SocketAddress{
 								SocketAddress: &envoy_api_v2_core.SocketAddress{
 									Address: "127.0.0.1",
 									PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
-										PortValue: uint32(httpPort),
+										PortValue: 5353,
 									},
 								},
 							},
-						},
+						}},
+						DnsLookupFamily:     envoy_api_v2.Cluster_V4_ONLY,
+						DnsRefreshRate:      ptypes.DurationProto(100 * time.Millisecond),
+						UseTcpForDnsLookups: true,
 					},
 				},
-			}},
-		}},
-	}
-}
-
-func TestXDS(t *testing.T) {
-	testData := []struct {
-		name, configFile string
-		push             func(net.Addr, *cds.Server)
-	}{
-		{
-			name:       "cds cluster with static endpoints",
-			configFile: "envoy-cds.yaml",
-			push: func(addr net.Addr, s *cds.Server) {
-				// Push the location of our webserver to Envoy.
-				s.AddClusters([]*envoy_api_v2.Cluster{{
-					Name:                 "test",
-					ConnectTimeout:       ptypes.DurationProto(time.Second),
-					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STATIC},
-					LoadAssignment:       loadAssignmentForTestServer(addr),
-				}})
+			},
+			push: func(addr *net.TCPAddr, es, cs cache.Store) {
+				cs.Add(&v1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "test",
+						Name:      "web",
+					},
+					Spec: v1.ServiceSpec{
+						ClusterIP: "None",
+						Ports: []v1.ServicePort{{
+							Name: "http",
+							Port: int32(addr.Port),
+						}},
+					},
+				})
 			},
 		},
 		{
 			name:       "eds endpoints from static cluster",
 			configFile: "envoy-eds-only.yaml",
-			push: func(addr net.Addr, s *cds.Server) {
-				// TODO(jrockway): This isn't an amazingly useful test; should
-				// rewrite to go thru the glue layer.
-				s.Endpoints.Add([]xds.Resource{
-					loadAssignmentForTestServer(addr),
+			config:     glue.DefaultConfig(),
+			push: func(addr *net.TCPAddr, es, cs cache.Store) {
+				es.Add(&v1.Endpoints{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "test",
+						Name:      "web",
+					},
+					Subsets: []v1.EndpointSubset{{
+						Addresses: []v1.EndpointAddress{{
+							IP: "127.0.0.1",
+						}},
+						NotReadyAddresses: []v1.EndpointAddress{{
+							IP: "127.0.0.2",
+						}},
+						Ports: []v1.EndpointPort{{
+							Name:     "http",
+							Port:     int32(addr.Port),
+							Protocol: v1.ProtocolTCP,
+						}},
+					}},
 				})
 			},
 		},
@@ -128,6 +156,28 @@ func TestXDS(t *testing.T) {
 	if envoyLogLevel == "" {
 		envoyLogLevel = "critical"
 	}
+
+	// Serve DNS.
+	dns.HandleFunc("svc.cluster.local.", func(w dns.ResponseWriter, req *dns.Msg) {
+		res := new(dns.Msg)
+		res.SetReply(req)
+		dom := "xxx"
+		if len(req.Question) == 1 {
+			dom = req.Question[0].Name
+		}
+		zap.L().Named("dns").Info("query", zap.String("domain", dom))
+		res.Answer = append(res.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: dom, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1},
+			A:   net.IPv4(127, 0, 0, 1).To4(),
+		})
+		w.WriteMsg(res)
+	})
+	d := &dns.Server{
+		Addr: "127.0.0.1:5353",
+		Net:  "tcp",
+	}
+	go d.ListenAndServe()
+	defer d.Shutdown()
 
 	for _, test := range testData {
 		t.Run(test.name, func(t *testing.T) {
@@ -189,7 +239,7 @@ func TestXDS(t *testing.T) {
 			}
 
 			// Push xds information.
-			test.push(hl.Addr(), server)
+			test.push(hl.Addr().(*net.TCPAddr), test.config.EndpointConfig.Store(server), test.config.ClusterConfig.Store(server))
 
 			// Try getting a request through the proxy.
 			if err := get(t, "http://localhost:9091/proxy/hello"); err != nil {

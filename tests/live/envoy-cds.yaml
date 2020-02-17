@@ -29,7 +29,7 @@ static_resources:
                                               body:
                                                   inline_string: "Hello from Envoy"
                                         - match: { prefix: "/proxy/" }
-                                          route: { cluster: "test" }
+                                          route: { cluster: "test:web:http" }
                               validate_clusters: false
                           http_filters:
                               - name: envoy.router

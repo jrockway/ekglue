@@ -29,7 +29,7 @@ static_resources:
                                               body:
                                                   inline_string: "Hello from Envoy"
                                         - match: { prefix: "/proxy/" }
-                                          route: { cluster: "test" }
+                                          route: { cluster: "test:web:http" }
                           http_filters:
                               - name: envoy.router
     clusters:
@@ -55,7 +55,7 @@ static_resources:
                                   socket_address:
                                       address: 127.0.0.1
                                       port_value: 9090
-        - name: test
+        - name: test:web:http
           connect_timeout: 1s
           type: EDS
           lb_policy: RANDOM
@@ -63,7 +63,7 @@ static_resources:
               tcp_keepalive: {}
           health_checks:
               - timeout: 1s
-                interval: 10s
+                interval: 1s
                 healthy_threshold: 1
                 unhealthy_threshold: 1
                 tcp_health_check: {}
