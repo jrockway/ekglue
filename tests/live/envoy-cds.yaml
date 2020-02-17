@@ -34,7 +34,7 @@ static_resources:
                           http_filters:
                               - name: envoy.router
     clusters:
-        - name: cds
+        - name: xds
           connect_timeout: 1s
           type: STATIC
           dns_lookup_family: V4_ONLY
@@ -43,7 +43,7 @@ static_resources:
           upstream_connection_options:
               tcp_keepalive: {}
           load_assignment:
-              cluster_name: cds
+              cluster_name: xds
               endpoints:
                   - lb_endpoints:
                         - endpoint:
@@ -59,4 +59,4 @@ dynamic_resources:
             transport_api_version: V2
             grpc_services:
                 envoy_grpc:
-                    cluster_name: cds
+                    cluster_name: xds

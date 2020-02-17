@@ -15,6 +15,7 @@ import (
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jrockway/ekglue/pkg/cds"
 	"github.com/jrockway/ekglue/pkg/glue"
 	"github.com/miekg/dns"
@@ -57,6 +58,33 @@ func get(t *testing.T, url string) error {
 		return errors.New("failed after 20 attempts")
 	}
 	return nil
+}
+
+var dynamicConfig = &glue.Config{
+	ClusterConfig: &glue.ClusterConfig{
+		BaseConfig: &envoy_api_v2.Cluster{
+			ConnectTimeout: ptypes.DurationProto(time.Second),
+			ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
+				Type: envoy_api_v2.Cluster_EDS,
+			},
+			EdsClusterConfig: &envoy_api_v2.Cluster_EdsClusterConfig{
+				EdsConfig: &envoy_api_v2_core.ConfigSource{
+					ConfigSourceSpecifier: &envoy_api_v2_core.ConfigSource_ApiConfigSource{
+						ApiConfigSource: &envoy_api_v2_core.ApiConfigSource{
+							ApiType: envoy_api_v2_core.ApiConfigSource_GRPC,
+							GrpcServices: []*envoy_api_v2_core.GrpcService{{
+								TargetSpecifier: &envoy_api_v2_core.GrpcService_EnvoyGrpc_{EnvoyGrpc: &envoy_api_v2_core.GrpcService_EnvoyGrpc{
+									ClusterName: "xds",
+								}},
+							}},
+						},
+					},
+					InitialFetchTimeout: ptypes.DurationProto(time.Second),
+					ResourceApiVersion:  envoy_api_v2_core.ApiVersion_V2,
+				},
+			},
+		},
+	},
 }
 
 func TestXDS(t *testing.T) {
@@ -138,6 +166,100 @@ func TestXDS(t *testing.T) {
 				})
 			},
 		},
+		{
+			name:       "cds with eds endpoints",
+			configFile: "envoy-cds.yaml",
+			config:     dynamicConfig,
+			push: func(addr *net.TCPAddr, es, cs cache.Store) {
+				cs.Add(&v1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "test",
+						Name:      "web",
+					},
+					Spec: v1.ServiceSpec{
+						ClusterIP: "None",
+						Ports: []v1.ServicePort{{
+							Name: "http",
+							Port: int32(addr.Port),
+						}},
+					},
+				})
+				es.Add(&v1.Endpoints{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "test",
+						Name:      "web",
+					},
+					Subsets: []v1.EndpointSubset{{
+						Addresses: []v1.EndpointAddress{{
+							IP: "127.0.0.1",
+						}},
+						NotReadyAddresses: []v1.EndpointAddress{{
+							IP: "127.0.0.2",
+						}},
+						Ports: []v1.EndpointPort{{
+							Name:     "http",
+							Port:     int32(addr.Port),
+							Protocol: v1.ProtocolTCP,
+						}},
+					}},
+				})
+			},
+		}, {
+			name:       "cds with eds endpoints (reverse order)",
+			configFile: "envoy-cds.yaml",
+			config:     dynamicConfig,
+			push: func(addr *net.TCPAddr, es, cs cache.Store) {
+				es.Add(&v1.Endpoints{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "test",
+						Name:      "web",
+					},
+					Subsets: []v1.EndpointSubset{{
+						Addresses: []v1.EndpointAddress{{
+							IP: "127.0.0.1",
+						}},
+						NotReadyAddresses: []v1.EndpointAddress{{
+							IP: "127.0.0.2",
+						}},
+						Ports: []v1.EndpointPort{{
+							Name:     "http",
+							Port:     int32(addr.Port),
+							Protocol: v1.ProtocolTCP,
+						}},
+					}},
+				})
+				cs.Add(&v1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "test",
+						Name:      "web",
+					},
+					Spec: v1.ServiceSpec{
+						ClusterIP: "None",
+						Ports: []v1.ServicePort{{
+							Name: "http",
+							Port: int32(addr.Port),
+						}},
+					},
+				})
+
+			},
+		},
 	}
 	// find the Envoy binary.
 	envoy := os.Getenv("ENVOY_PATH")
@@ -211,7 +333,7 @@ func TestXDS(t *testing.T) {
 			if err != nil {
 				t.Fatalf("listen: %v", err)
 			}
-			gs := grpc.NewServer()
+			gs := grpc.NewServer(grpc.StreamInterceptor(loggingStreamServerInterceptor(logger.Named("grpc"))))
 			go gs.Serve(gl)
 			defer func() {
 				gs.Stop()
@@ -280,4 +402,21 @@ func redirectToLog(l *zap.Logger, cmd *exec.Cmd) {
 			l.Info(s.Text())
 		}
 	}()
+}
+
+type wrappedServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *wrappedServerStream) Context() context.Context {
+	return s.ctx
+}
+
+func loggingStreamServerInterceptor(l *zap.Logger) grpc.StreamServerInterceptor {
+	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		ctx := ctxzap.ToContext(stream.Context(), l)
+		wrapped := &wrappedServerStream{ServerStream: stream, ctx: ctx}
+		return handler(srv, wrapped)
+	}
 }
