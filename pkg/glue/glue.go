@@ -92,6 +92,7 @@ type EndpointConfig struct {
 	IncludeNotReady bool
 }
 
+// Config configures how to turn k8s resources into Envoy Clusters and ClusterLoadAssignments.
 type Config struct {
 	// The API version of this config file; not related to the Envoy dataplane API version.
 	ApiVersion string `json:"apiVersion"`
