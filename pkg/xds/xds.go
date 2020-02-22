@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"time"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	"github.com/gogo/protobuf/jsonpb"
@@ -23,6 +24,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"sigs.k8s.io/yaml"
 )
 
@@ -224,9 +228,34 @@ func (m *Manager) List() []Resource {
 }
 
 type tx struct {
+	start   time.Time
 	span    opentracing.Span
 	nonce   string
 	version string
+}
+
+type loggableSpan struct{ opentracing.Span }
+
+func (t *tx) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	if t == nil {
+		return errors.New("nil tx")
+	}
+	enc.AddDuration("age", time.Since(t.start))
+	enc.AddString("nonce", t.nonce)
+	enc.AddString("version", t.version)
+	enc.AddObject("trace", &loggableSpan{t.span})
+	return nil
+}
+
+func (s *loggableSpan) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	c := make(opentracing.TextMapCarrier)
+	if err := s.Tracer().Inject(s.Context(), opentracing.TextMap, c); err != nil {
+		return err
+	}
+	for k, v := range c {
+		enc.AddString(k, v)
+	}
+	return nil
 }
 
 func (m *Manager) BuildDiscoveryResponse() (*envoy_api_v2.DiscoveryResponse, error) {
@@ -292,30 +321,32 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			l.Error("problem building response", zap.Error(err))
 			return
 		}
-		l.Info("pushing updated resources", zap.String("version", res.GetVersionInfo()), zap.String("nonce", res.GetNonce()), zap.Int("resource_count", len(res.Resources)))
 		span := opentracing.StartSpan("xds_push", ext.SpanKindProducer)
 		ext.PeerService.Set(span, node)
 		span.SetTag("xds_type", m.Type)
 		span.SetTag("xds_version", res.GetVersionInfo())
-		txs[res.GetNonce()] = &tx{span: span, version: res.GetVersionInfo(), nonce: res.GetNonce()}
+		t := &tx{start: time.Now(), span: span, version: res.GetVersionInfo(), nonce: res.GetNonce()}
+		txs[res.GetNonce()] = t
+		l.Info("pushing updated resources", zap.Object("tx", t), zap.Int("resource_count", len(res.Resources)))
 		resCh <- res
-		span.LogEvent("sent")
+		span.LogEvent("pushed resources")
 	}
 
 	// handleTx handles an acknowledgement
 	handleTx := func(t *tx, req *envoy_api_v2.DiscoveryRequest) {
+		t.span.LogEvent("got response")
 		var ack bool
 		origVersion, version := t.version, req.GetVersionInfo()
 		if err := req.GetErrorDetail(); err != nil {
 			ext.LogError(t.span, errors.New(err.GetMessage()))
-			l.Error("envoy rejected configuration", zap.Any("error", err), zap.String("version.rejected", origVersion), zap.String("version.in_use", version))
+			l.Error("envoy rejected configuration", zap.Any("error", err), zap.String("version.rejected", origVersion), zap.String("version.in_use", version), zap.Object("tx", t))
 			xdsConfigAcceptanceStatus.WithLabelValues(m.Name, m.Type, origVersion, "NACK").Inc()
 		} else {
 			ack = true
-			l.Info("envoy accepted configuration", zap.String("version.in_use", version), zap.String("version.sent", origVersion))
+			l.Info("envoy accepted configuration", zap.String("version.in_use", version), zap.String("version.sent", origVersion), zap.Object("tx", t))
 			xdsConfigAcceptanceStatus.WithLabelValues(m.Name, m.Type, origVersion, "ACK").Inc()
 			if version != origVersion {
-				l.Warn("envoy acknowledged a config version that does not correspond to what we sent", zap.String("version.in_use", version), zap.String("version.sent", origVersion))
+				l.Warn("envoy acknowledged a config version that does not correspond to what we sent", zap.String("version.in_use", version), zap.String("version.sent", origVersion), zap.Object("tx", t))
 			}
 		}
 		status := "NACK"
@@ -332,8 +363,11 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			})
 		}
 		t.span.Finish()
-		delete(txs, req.GetResponseNonce())
+		delete(txs, t.nonce)
 	}
+
+	// when cleanupTicker ticks, we attempt to delete transactions that have been forgotten.
+	cleanupTicker := time.NewTicker(time.Minute)
 
 	for {
 		select {
@@ -341,6 +375,15 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			return errors.New("server draining")
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-cleanupTicker.C:
+			for key, t := range txs {
+				if time.Since(t.start) > time.Minute {
+					l.Debug("cleaning up stale transaction", zap.Object("tx", t))
+					ext.LogError(t.span, errors.New("transaction went stale"))
+					t.span.Finish()
+					delete(txs, key)
+				}
+			}
 		case req, ok := <-reqCh:
 			if !ok {
 				return errors.New("request channel closed")
@@ -354,10 +397,12 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 				l = l.With(zap.Strings("subscribed_resources", resources))
 			}
 			if diff := cmp.Diff(resources, newResources); diff != "" {
-				// I am pretty sure xDS doesn't allow change the subscribed resource
-				// set, so we warn about attempting to do so.  I guess if we see
-				// this warning, it means that being "pretty sure" was incorrect.
-				zap.L().Warn("envoy changed resource subscriptions without opening a new stream; config will be out of sync", zap.Strings("new_resources", newResources))
+				// I am pretty sure xDS doesn't allow changing the subscribed
+				// resource set, so we warn about attempting to do so.  I guess if
+				// we see this warning, it means that being "pretty sure" was
+				// incorrect.
+				zap.L().Warn("envoy changed resource subscriptions without opening a new stream", zap.Strings("new_resources", newResources))
+				return status.Error(codes.FailedPrecondition, "resource subscriptions changed unexpectedly")
 			}
 
 			if t := req.GetTypeUrl(); t != m.Type {
