@@ -23,6 +23,7 @@ import (
 	"github.com/opentracing/opentracing-go/ext"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/uber/jaeger-client-go"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/codes"
@@ -110,16 +111,44 @@ func (m *Manager) versionString() string {
 	return fmt.Sprintf("%s%d", m.VersionPrefix, m.version)
 }
 
-// snapshot returns the current list of managed resources.  You must hold the Manager's lock.
-func (m *Manager) snapshot() ([]*any.Any, string, error) {
+// snapshotAll returns the current list of managed resources.  You must hold the Manager's lock.
+func (m *Manager) snapshotAll() ([]*any.Any, string, error) {
 	result := make([]*any.Any, 0, len(m.resources))
-	for _, r := range m.resources {
+	for n, r := range m.resources {
 		any, err := ptypes.MarshalAny(r)
 		if err != nil {
-			return nil, "", fmt.Errorf("marshal resource %s to any: %w", r, err)
+			return nil, "", fmt.Errorf("marshal resource %s to any: %w", n, err)
 		}
 		result = append(result, any)
 	}
+	return result, m.versionString(), nil
+}
+
+// snapshot returns a subset of managed resources.  You must hold the Manager's lock.
+func (m *Manager) snapshot(want []string) ([]*any.Any, string, error) {
+	if len(want) == 0 {
+		return m.snapshotAll()
+	}
+	result := make([]*any.Any, 0, len(m.resources))
+	for _, name := range want {
+		r, ok := m.resources[name]
+		if !ok {
+			// NOTE(jrockway): Because discovery is "eventually consistent", this is OK.
+			// A service might exist without any endpoints, so when Envoy loads that
+			// cluster it will subscribe to those endpoints, there just won't be any
+			// yet.  When an endpoint shows up, then it will be sent.  As a result, this
+			// log message might be too spammy, but we'll see.
+			m.Logger.Debug("requested resource is not available", zap.String("resource_name", name))
+			continue
+		}
+		any, err := ptypes.MarshalAny(r)
+		if err != nil {
+			return nil, "", fmt.Errorf("marshal resource %s to any: %w", name, err)
+		}
+		result = append(result, any)
+	}
+	// TODO(jrockway): Return a better version string, probably max(resource[].version) (which
+	// we don't track right now, but is available in the k8s api objects).
 	return result, m.versionString(), nil
 }
 
@@ -248,6 +277,20 @@ func (t *tx) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 }
 
 func (s *loggableSpan) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	if s == nil || s.Span == nil {
+		return nil
+	}
+
+	j, ok := s.Context().(jaeger.SpanContext)
+	if ok {
+		if !j.IsValid() {
+			return fmt.Errorf("invalid span: %v", j.SpanID())
+		}
+		enc.AddString("span", j.SpanID().String())
+		enc.AddBool("sampled", j.IsSampled())
+		return nil
+	}
+
 	c := make(opentracing.TextMapCarrier)
 	if err := s.Tracer().Inject(s.Context(), opentracing.TextMap, c); err != nil {
 		return err
@@ -258,21 +301,26 @@ func (s *loggableSpan) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	return nil
 }
 
-func (m *Manager) BuildDiscoveryResponse() (*envoy_api_v2.DiscoveryResponse, error) {
-	m.Lock()
-	defer m.Unlock()
-	resources, version, err := m.snapshot()
-	if err != nil {
-		return nil, fmt.Errorf("snapshot resources: %w", err)
-	}
+func randomString() string {
 	hash := [8]byte{'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'}
 	if n, err := rand.Read(hash[0:8]); n >= 8 && err == nil {
 		for i := 0; i < len(hash); i++ {
 			hash[i] = hash[i]%26 + 'a'
 		}
 	}
+	return string(hash[0:8])
+}
+
+func (m *Manager) BuildDiscoveryResponse(streamID string, subscribed []string) (*envoy_api_v2.DiscoveryResponse, error) {
+	m.Lock()
+	defer m.Unlock()
+	resources, version, err := m.snapshot(subscribed)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot resources: %w", err)
+	}
+	hash := randomString()
 	res := &envoy_api_v2.DiscoveryResponse{
-		VersionInfo: version,
+		VersionInfo: fmt.Sprintf("%s-%s", streamID, version),
 		TypeUrl:     m.Type,
 		Resources:   resources,
 		Nonce:       fmt.Sprintf("nonce-%s-%s", version, hash),
@@ -314,15 +362,20 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 	// Resources that the client is interested in
 	var resources []string
 
+	streamID := randomString()
+	l = l.With(zap.String("stream_id", streamID))
+	ctxzap.ToContext(ctx, l)
+
 	// sendUpdate starts a new transaction and sends the current resource list.
 	sendUpdate := func() {
-		res, err := m.BuildDiscoveryResponse()
+		res, err := m.BuildDiscoveryResponse(streamID, resources)
 		if err != nil {
 			l.Error("problem building response", zap.Error(err))
 			return
 		}
 		span := opentracing.StartSpan("xds_push", ext.SpanKindProducer)
 		ext.PeerService.Set(span, node)
+		span.SetTag("stream_id", streamID)
 		span.SetTag("xds_type", m.Type)
 		span.SetTag("xds_version", res.GetVersionInfo())
 		t := &tx{start: time.Now(), span: span, version: res.GetVersionInfo(), nonce: res.GetNonce()}

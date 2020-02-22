@@ -13,6 +13,7 @@ require (
 	github.com/miekg/dns v1.1.27
 	github.com/opentracing/opentracing-go v1.1.1-0.20200124165624-2876d2018785
 	github.com/prometheus/client_golang v1.4.1
+	github.com/uber/jaeger-client-go v2.21.1+incompatible
 	go.uber.org/zap v1.13.0
 	google.golang.org/genproto v0.0.0-20190819201941-24fa4b261c55
 	google.golang.org/grpc v1.27.1
