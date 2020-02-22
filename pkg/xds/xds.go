@@ -2,6 +2,7 @@ package xds
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -235,11 +236,17 @@ func (m *Manager) BuildDiscoveryResponse() (*envoy_api_v2.DiscoveryResponse, err
 	if err != nil {
 		return nil, fmt.Errorf("snapshot resources: %w", err)
 	}
+	hash := [8]byte{'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'}
+	if n, err := rand.Read(hash[0:8]); n >= 8 && err == nil {
+		for i := 0; i < len(hash); i++ {
+			hash[i] = hash[i]%26 + 'a'
+		}
+	}
 	res := &envoy_api_v2.DiscoveryResponse{
 		VersionInfo: version,
 		TypeUrl:     m.Type,
 		Resources:   resources,
-		Nonce:       fmt.Sprintf("nonce-%s", version),
+		Nonce:       fmt.Sprintf("nonce-%s-%s", version, hash),
 	}
 	if err := res.Validate(); err != nil {
 		return nil, fmt.Errorf("validate generated discovery response: %w", err)
