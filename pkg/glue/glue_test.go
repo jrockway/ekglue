@@ -241,6 +241,11 @@ func TestLoadConfig(t *testing.T) {
 				},
 				EndpointConfig: &EndpointConfig{
 					IncludeNotReady: false,
+					Locality: &LocalityConfig{
+						Region:      "tests",
+						ZoneFrom:    "host",
+						SubZoneFrom: "host",
+					},
 				},
 			},
 		},

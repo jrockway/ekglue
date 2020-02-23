@@ -88,9 +88,17 @@ func (c *ClusterConfig) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// LocalityConfig configures how to determine the locality of an endpoint.
+type LocalityConfig struct {
+	Region      string `json:"region"`
+	ZoneFrom    string `json:"zone_from"`
+	SubZoneFrom string `json:"sub_zone_from"`
+}
+
 // EndpointConfig configures creation of Envoy cluster load assignments from Kubernetes endpoints.
 type EndpointConfig struct {
-	IncludeNotReady bool `json:"include_not_ready"`
+	IncludeNotReady bool            `json:"include_not_ready"`
+	Locality        *LocalityConfig `json:"locality"`
 }
 
 // Config configures how to turn k8s resources into Envoy Clusters and ClusterLoadAssignments.
@@ -110,7 +118,9 @@ func DefaultConfig() *Config {
 				ConnectTimeout: ptypes.DurationProto(time.Second),
 			},
 		},
-		EndpointConfig: &EndpointConfig{},
+		EndpointConfig: &EndpointConfig{
+			Locality: &LocalityConfig{},
+		},
 	}
 }
 
@@ -168,13 +178,14 @@ func singleTargetLoadAssignment(cluster, hostname string, port int32) *envoy_api
 	return &envoy_api_v2.ClusterLoadAssignment{
 		ClusterName: cluster,
 		Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{{
-			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{lbEndpoint(hostname, port)},
+			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{lbEndpoint(hostname, port, envoy_api_v2_core.HealthStatus_UNKNOWN)},
 		}},
 	}
 }
 
-func lbEndpoint(hostname string, port int32) *envoy_api_v2_endpoint.LbEndpoint {
+func lbEndpoint(hostname string, port int32, health envoy_api_v2_core.HealthStatus) *envoy_api_v2_endpoint.LbEndpoint {
 	return &envoy_api_v2_endpoint.LbEndpoint{
+		HealthStatus: health,
 		HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
 			Endpoint: &envoy_api_v2_endpoint.Endpoint{
 				Address: &envoy_api_v2_core.Address{
@@ -231,7 +242,20 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 // LoadAssignmentFromEndpoints translates a Kubernetes endpoints object into an Envoy
 // ClusterLoadAssignment.  The returned load assignment is never nil.
 func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envoy_api_v2.ClusterLoadAssignment {
-	endpointsByCluster := make(map[string][]*envoy_api_v2_endpoint.LbEndpoint)
+	endpointsByClusterByHost := make(map[string]map[string][]*envoy_api_v2_endpoint.LbEndpoint)
+	addEndpoint := func(addr v1.EndpointAddress, cluster string, port int32, health envoy_api_v2_core.HealthStatus) {
+		host := ""
+		if addr.NodeName != nil {
+			host = *addr.NodeName
+		}
+		endpointsByHost, ok := endpointsByClusterByHost[cluster]
+		if !ok {
+			endpointsByHost = make(map[string][]*envoy_api_v2_endpoint.LbEndpoint)
+			endpointsByClusterByHost[cluster] = endpointsByHost
+		}
+		endpointsByHost[host] = append(endpointsByHost[host], lbEndpoint(addr.IP, port, health))
+	}
+
 	for _, ss := range eps.Subsets {
 		for _, port := range ss.Ports {
 			// BUG(#3): We really need to create separate clusters by protocol.
@@ -244,24 +268,40 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envo
 			}
 			cluster := fmt.Sprintf("%s:%s:%s", eps.GetNamespace(), eps.GetName(), n)
 			for _, addr := range ss.Addresses {
-				endpointsByCluster[cluster] = append(endpointsByCluster[cluster], lbEndpoint(addr.IP, port.Port))
+				addEndpoint(addr, cluster, port.Port, envoy_api_v2_core.HealthStatus_HEALTHY)
 			}
 			if c.IncludeNotReady {
 				for _, addr := range ss.NotReadyAddresses {
-					endpointsByCluster[cluster] = append(endpointsByCluster[cluster], lbEndpoint(addr.IP, port.Port))
+					addEndpoint(addr, cluster, port.Port, envoy_api_v2_core.HealthStatus_DEGRADED)
 				}
 			}
 		}
 	}
 
 	var result []*envoy_api_v2.ClusterLoadAssignment
-	for name, endpoints := range endpointsByCluster {
-		result = append(result, &envoy_api_v2.ClusterLoadAssignment{
-			ClusterName: name,
-			Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{{
+	for cluster, endpointsByHost := range endpointsByClusterByHost {
+		var localityEndpoints []*envoy_api_v2_endpoint.LocalityLbEndpoints
+		for host, endpoints := range endpointsByHost {
+			locality := &envoy_api_v2_core.Locality{}
+			if c.Locality != nil {
+				locality.Region = c.Locality.Region
+				if c.Locality.ZoneFrom == "host" {
+					locality.Zone = host
+				}
+				if c.Locality.SubZoneFrom == "host" {
+					locality.SubZone = host
+				}
+			}
+			localityEndpoints = append(localityEndpoints, &envoy_api_v2_endpoint.LocalityLbEndpoints{
+				Locality:    locality,
 				LbEndpoints: endpoints,
-			}},
+			})
+		}
+		result = append(result, &envoy_api_v2.ClusterLoadAssignment{
+			ClusterName: cluster,
+			Endpoints:   localityEndpoints,
 		})
+
 	}
 	return result
 }
