@@ -190,6 +190,7 @@ func (m *Manager) notify() {
 func (m *Manager) Add(rs []Resource) error {
 	m.Lock()
 	defer m.Unlock()
+	var changed bool
 	for _, r := range rs {
 		n := resourceName(r)
 		if err := r.Validate(); err != nil {
@@ -200,9 +201,12 @@ func (m *Manager) Add(rs []Resource) error {
 		} else {
 			m.Logger.Info("resource added", zap.String("name", n))
 		}
+		changed = true
 		m.resources[n] = r
 	}
-	m.notify()
+	if changed {
+		m.notify()
+	}
 	return nil
 }
 
@@ -216,9 +220,11 @@ func (m *Manager) Replace(rs []Resource) error {
 	}
 	m.Lock()
 	defer m.Unlock()
+	var changed bool
 	old := m.resources
 	m.resources = make(map[string]Resource)
 	for _, r := range rs {
+		changed = true
 		n := resourceName(r)
 		if _, overwrote := old[n]; overwrote {
 			m.Logger.Info("resource updated", zap.String("name", n))
@@ -229,9 +235,12 @@ func (m *Manager) Replace(rs []Resource) error {
 		m.resources[n] = r
 	}
 	for n := range old {
+		changed = true
 		m.Logger.Info("resource deleted", zap.String("name", n))
 	}
-	m.notify()
+	if changed {
+		m.notify()
+	}
 	return nil
 }
 
@@ -242,8 +251,8 @@ func (m *Manager) Delete(n string) {
 	if _, ok := m.resources[n]; ok {
 		delete(m.resources, n)
 		m.Logger.Info("resource deleted", zap.String("name", n))
+		m.notify()
 	}
-	m.notify()
 }
 
 // ListKeys returns the sorted names of managed resources.
