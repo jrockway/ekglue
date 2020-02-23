@@ -57,6 +57,7 @@ func (o *ClusterOverride) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// ClusterConfig configures creation of Envoy clusters from Kubernetes services.
 type ClusterConfig struct {
 	// The base configuration that should be used for all clusters.
 	BaseConfig *envoy_api_v2.Cluster `json:"base"`
@@ -87,9 +88,9 @@ func (c *ClusterConfig) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// EndpointConfig configures creation of Envoy cluster load assignments from Kubernetes endpoints.
 type EndpointConfig struct {
-	BaseConfig      *envoy_api_v2.ClusterLoadAssignment
-	IncludeNotReady bool
+	IncludeNotReady bool `json:"include_not_ready"`
 }
 
 // Config configures how to turn k8s resources into Envoy Clusters and ClusterLoadAssignments.
@@ -109,6 +110,7 @@ func DefaultConfig() *Config {
 				ConnectTimeout: ptypes.DurationProto(time.Second),
 			},
 		},
+		EndpointConfig: &EndpointConfig{},
 	}
 }
 
@@ -243,6 +245,11 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envo
 			cluster := fmt.Sprintf("%s:%s:%s", eps.GetNamespace(), eps.GetName(), n)
 			for _, addr := range ss.Addresses {
 				endpointsByCluster[cluster] = append(endpointsByCluster[cluster], lbEndpoint(addr.IP, port.Port))
+			}
+			if c.IncludeNotReady {
+				for _, addr := range ss.NotReadyAddresses {
+					endpointsByCluster[cluster] = append(endpointsByCluster[cluster], lbEndpoint(addr.IP, port.Port))
+				}
 			}
 		}
 	}

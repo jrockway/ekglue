@@ -85,6 +85,7 @@ var dynamicConfig = &glue.Config{
 			},
 		},
 	},
+	EndpointConfig: &glue.EndpointConfig{},
 }
 
 func TestXDS(t *testing.T) {

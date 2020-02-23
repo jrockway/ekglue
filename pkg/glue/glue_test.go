@@ -239,6 +239,9 @@ func TestLoadConfig(t *testing.T) {
 						},
 					},
 				},
+				EndpointConfig: &EndpointConfig{
+					IncludeNotReady: false,
+				},
 			},
 		},
 		{
