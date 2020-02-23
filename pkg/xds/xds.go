@@ -43,6 +43,18 @@ var (
 		Name: "xds_config_acceptance_status",
 		Help: "The number of Envoy instances that have accepted or rejected a config version.",
 	}, []string{"manager_name", "config_type", "config_version", "status"})
+
+	// A count of how many times a given resource has been pushed.
+	xdsResourcePushCount = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "xds_resource_push_count",
+		Help: "The number of times a named resource has been pushed.",
+	}, []string{"manager_name", "config_type", "resource_name"})
+
+	// A timestamp of when each resource was last pushed.
+	xdsResourcePushAge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "xds_resource_push_age",
+		Help: "The time when the named resouce was last pushed.",
+	}, []string{"manager_name", "config_type", "resource_name"})
 )
 
 // Resource is an xDS resource, like envoy_api_v2.Cluster, etc.
@@ -112,24 +124,27 @@ func (m *Manager) versionString() string {
 }
 
 // snapshotAll returns the current list of managed resources.  You must hold the Manager's lock.
-func (m *Manager) snapshotAll() ([]*any.Any, string, error) {
+func (m *Manager) snapshotAll() ([]*any.Any, []string, string, error) {
 	result := make([]*any.Any, 0, len(m.resources))
+	names := make([]string, 0, len(m.resources))
 	for n, r := range m.resources {
 		any, err := ptypes.MarshalAny(r)
 		if err != nil {
-			return nil, "", fmt.Errorf("marshal resource %s to any: %w", n, err)
+			return nil, nil, "", fmt.Errorf("marshal resource %s to any: %w", n, err)
 		}
+		names = append(names, n)
 		result = append(result, any)
 	}
-	return result, m.versionString(), nil
+	return result, names, m.versionString(), nil
 }
 
 // snapshot returns a subset of managed resources.  You must hold the Manager's lock.
-func (m *Manager) snapshot(want []string) ([]*any.Any, string, error) {
+func (m *Manager) snapshot(want []string) ([]*any.Any, []string, string, error) {
 	if len(want) == 0 {
 		return m.snapshotAll()
 	}
-	result := make([]*any.Any, 0, len(m.resources))
+	result := make([]*any.Any, 0, len(want))
+	names := make([]string, 0, len(want))
 	for _, name := range want {
 		r, ok := m.resources[name]
 		if !ok {
@@ -143,13 +158,14 @@ func (m *Manager) snapshot(want []string) ([]*any.Any, string, error) {
 		}
 		any, err := ptypes.MarshalAny(r)
 		if err != nil {
-			return nil, "", fmt.Errorf("marshal resource %s to any: %w", name, err)
+			return nil, nil, "", fmt.Errorf("marshal resource %s to any: %w", name, err)
 		}
+		names = append(names, name)
 		result = append(result, any)
 	}
 	// TODO(jrockway): Return a better version string, probably max(resource[].version) (which
 	// we don't track right now, but is available in the k8s api objects).
-	return result, m.versionString(), nil
+	return result, names, m.versionString(), nil
 }
 
 // notify notifies connected clients of the change.  You must hold the Manager's lock.
@@ -311,24 +327,24 @@ func randomString() string {
 	return string(hash[0:8])
 }
 
-func (m *Manager) BuildDiscoveryResponse(streamID string, subscribed []string) (*envoy_api_v2.DiscoveryResponse, error) {
+func (m *Manager) BuildDiscoveryResponse(subscribed []string) (*envoy_api_v2.DiscoveryResponse, []string, error) {
 	m.Lock()
 	defer m.Unlock()
-	resources, version, err := m.snapshot(subscribed)
+	resources, names, version, err := m.snapshot(subscribed)
 	if err != nil {
-		return nil, fmt.Errorf("snapshot resources: %w", err)
+		return nil, nil, fmt.Errorf("snapshot resources: %w", err)
 	}
 	hash := randomString()
 	res := &envoy_api_v2.DiscoveryResponse{
-		VersionInfo: fmt.Sprintf("%s-%s", streamID, version),
+		VersionInfo: version,
 		TypeUrl:     m.Type,
 		Resources:   resources,
 		Nonce:       fmt.Sprintf("nonce-%s-%s", version, hash),
 	}
 	if err := res.Validate(); err != nil {
-		return nil, fmt.Errorf("validate generated discovery response: %w", err)
+		return nil, nil, fmt.Errorf("validate generated discovery response: %w", err)
 	}
-	return res, nil
+	return res, names, nil
 }
 
 // Stream manages a client connection.  Requests from the client are read from reqCh, responses are
@@ -362,27 +378,40 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 	// Resources that the client is interested in
 	var resources []string
 
-	streamID := randomString()
-	l = l.With(zap.String("stream_id", streamID))
-	ctxzap.ToContext(ctx, l)
-
 	// sendUpdate starts a new transaction and sends the current resource list.
 	sendUpdate := func() {
-		res, err := m.BuildDiscoveryResponse(streamID, resources)
+		res, names, err := m.BuildDiscoveryResponse(resources)
 		if err != nil {
 			l.Error("problem building response", zap.Error(err))
 			return
 		}
 		span := opentracing.StartSpan("xds_push", ext.SpanKindProducer)
+		if parent := opentracing.SpanFromContext(ctx); parent != nil {
+			if parentctx := parent.Context(); parentctx != nil {
+				opentracing.FollowsFrom(parentctx)
+			}
+		}
 		ext.PeerService.Set(span, node)
-		span.SetTag("stream_id", streamID)
 		span.SetTag("xds_type", m.Type)
 		span.SetTag("xds_version", res.GetVersionInfo())
+
 		t := &tx{start: time.Now(), span: span, version: res.GetVersionInfo(), nonce: res.GetNonce()}
-		txs[res.GetNonce()] = t
-		l.Info("pushing updated resources", zap.Object("tx", t), zap.Int("resource_count", len(res.Resources)))
-		resCh <- res
-		span.LogEvent("pushed resources")
+		l.Info("pushing updated resources", zap.Object("tx", t), zap.Strings("resources", names))
+
+		timer := time.NewTimer(5 * time.Second)
+		select {
+		case resCh <- res:
+			for _, n := range names {
+				xdsResourcePushCount.WithLabelValues(m.Name, m.Type, n).Inc()
+				xdsResourcePushAge.WithLabelValues(m.Name, m.Type, n).SetToCurrentTime()
+			}
+			txs[res.GetNonce()] = t
+			span.LogEvent("pushed resources")
+		case <-timer.C:
+			l.Info("push timed out", zap.Object("tx", t))
+			ext.LogError(span, errors.New("push timed out"))
+			t.span.Finish()
+		}
 	}
 
 	// handleTx handles an acknowledgement
