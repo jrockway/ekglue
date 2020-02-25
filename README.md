@@ -4,6 +4,8 @@
 	<img src="img/logo.png" width="60%" align="center">
 </p>
 
+**Status: I'm currently using this in production, but it needs a tiny bit more cleanup before I push the containers to dockerhub and write docs.**
+
 This project exists to glue together [Kubernetes](https://kubernetes.io/) and
 [Envoy](https://www.envoyproxy.io/), allowing Envoy to read Kubernetes
 [services](https://kubernetes.io/docs/concepts/services-networking/service/) and endpoints as
