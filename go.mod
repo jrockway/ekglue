@@ -9,7 +9,7 @@ require (
 	github.com/golang/protobuf v1.3.3
 	github.com/google/go-cmp v0.4.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
-	github.com/jrockway/opinionated-server v0.0.6
+	github.com/jrockway/opinionated-server v0.0.8
 	github.com/miekg/dns v1.1.27
 	github.com/opentracing/opentracing-go v1.1.1-0.20200124165624-2876d2018785
 	github.com/prometheus/client_golang v1.4.1

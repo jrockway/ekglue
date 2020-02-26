@@ -3,7 +3,9 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"net/http"
 
+	"github.com/jrockway/opinionated-server/client"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -23,6 +25,9 @@ func ConnectOutOfCluster(kubeconfig string, master string) (*ClusterWatcher, err
 	config, err := clientcmd.BuildConfigFromFlags(master, kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: build config: %w", err)
+	}
+	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		return client.WrapRoundTripper(rt)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
