@@ -11,11 +11,11 @@ import (
 var (
 	// Number of Envoy instances with an open CDS stream.
 	cdsClientsStreaming = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "cds_active_stream_count",
+		Name: "ekglue_cds_active_stream_count",
 		Help: "The number of clients connected and streaming cluster updates.",
 	})
 	edsClientsStreaming = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "eds_active_stream_count",
+		Name: "ekglue_eds_active_stream_count",
 		Help: "The number of clients connected and streaming endpoint updates.",
 	})
 )
