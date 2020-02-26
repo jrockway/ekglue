@@ -2,6 +2,7 @@
 package glue
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,10 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/jrockway/ekglue/pkg/cds"
+	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
@@ -24,6 +29,14 @@ import (
 var (
 	// For extreme debugging, you can overwrite this.
 	Logger = zap.NewNop()
+
+	k8sChangeEvents = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ekglue_k8s_events",
+			Help: "A count of events that Kubernetes notified us of.",
+		},
+		[]string{"event", "op"},
+	)
 )
 
 type Matcher struct {
@@ -314,6 +327,30 @@ type ClusterStore struct {
 	s   *cds.Server
 }
 
+func startOp(opSource, opName string) (context.Context, func()) {
+	k8sChangeEvents.WithLabelValues(opSource, opName).Inc()
+	Logger.Debug("start reflector op", zap.String("reflector", opSource), zap.String("event", opName))
+	// 10 seconds is hardcoded as the timeout because under normal circumstances, this will be
+	// instantaneous.  xDS notifications only block if the stream event loop is blocked; it
+	// doesn't block on waiting for Envoy to ACK/NACK.
+	tctx, c := context.WithTimeout(context.Background(), 10*time.Second)
+	span := opentracing.StartSpan(fmt.Sprintf("reflector.%s.%s", opSource, opName))
+	ctx := opentracing.ContextWithSpan(tctx, span)
+
+	return ctx, func() {
+		c()
+		span.Finish()
+	}
+}
+
+func logError(ctx context.Context) {
+	span := opentracing.SpanFromContext(ctx)
+	if span == nil {
+		return
+	}
+	ext.Error.Set(span, true)
+}
+
 // Store returns a cache.Store that allows a Kubernetes reflector to sync service changes to a CDS
 // server.
 func (c *ClusterConfig) Store(s *cds.Server) *ClusterStore {
@@ -324,36 +361,44 @@ func (c *ClusterConfig) Store(s *cds.Server) *ClusterStore {
 }
 
 func (cs *ClusterStore) Add(obj interface{}) error {
-	Logger.Debug("Add cluster")
+	ctx, c := startOp("services", "add")
+	defer c()
 	svc, ok := obj.(*v1.Service)
 	if !ok {
+		logError(ctx)
 		return fmt.Errorf("add service: got non-service object %#v", obj)
 	}
-	if err := cs.s.AddClusters(cs.cfg.ClustersFromService(svc)); err != nil {
+	if err := cs.s.AddClusters(ctx, cs.cfg.ClustersFromService(svc)); err != nil {
+		logError(ctx)
 		return fmt.Errorf("add service: clusters: %w", err)
 	}
 	return nil
 }
 func (cs *ClusterStore) Update(obj interface{}) error {
-	Logger.Debug("Update cluster")
+	ctx, c := startOp("services", "update")
+	defer c()
 	svc, ok := obj.(*v1.Service)
 	if !ok {
+		logError(ctx)
 		return fmt.Errorf("update service: got non-service object %#v", obj)
 	}
-	if err := cs.s.AddClusters(cs.cfg.ClustersFromService(svc)); err != nil {
+	if err := cs.s.AddClusters(ctx, cs.cfg.ClustersFromService(svc)); err != nil {
+		logError(ctx)
 		return fmt.Errorf("update service: add clusters: %w", err)
 	}
 	return nil
 }
 func (cs *ClusterStore) Delete(obj interface{}) error {
-	Logger.Debug("Delete cluster")
+	ctx, c := startOp("services", "delete")
+	defer c()
 	svc, ok := obj.(*v1.Service)
 	if !ok {
+		logError(ctx)
 		return fmt.Errorf("delete service: got non-service object %#v", obj)
 	}
 	clusters := cs.cfg.ClustersFromService(svc)
 	for _, c := range clusters {
-		cs.s.DeleteCluster(c.GetName())
+		cs.s.DeleteCluster(ctx, c.GetName())
 	}
 	return nil
 }
@@ -385,16 +430,19 @@ func (cs *ClusterStore) GetByKey(key string) (item interface{}, exists bool, err
 	return nil, false, errors.New("clusterwatcher.GetByKey unimplemented")
 }
 func (cs *ClusterStore) Replace(objs []interface{}, _ string) error {
-	Logger.Debug("Replace cluster")
+	ctx, c := startOp("services", "replace")
+	defer c()
 	var clusters []*envoy_api_v2.Cluster
 	for _, obj := range objs {
 		svc, ok := obj.(*v1.Service)
 		if !ok {
+			logError(ctx)
 			return fmt.Errorf("replace services: got non-service object %#v", obj)
 		}
 		clusters = append(clusters, cs.cfg.ClustersFromService(svc)...)
 	}
-	if err := cs.s.ReplaceClusters(clusters); err != nil {
+	if err := cs.s.ReplaceClusters(ctx, clusters); err != nil {
+		logError(ctx)
 		return fmt.Errorf("replace services: replace clusters: %w", err)
 	}
 	return nil
@@ -421,49 +469,55 @@ func (c *EndpointConfig) Store(s *cds.Server) *EndpointStore {
 }
 
 func (es *EndpointStore) Add(obj interface{}) error {
-	Logger.Debug("Add endpoints")
+	ctx, c := startOp("endpoints", "add")
+	defer c()
 	eps, ok := obj.(*v1.Endpoints)
 	if !ok {
+		logError(ctx)
 		return fmt.Errorf("add endpoints: got non-endpoints object: %#v", obj)
 	}
-	if err := es.s.AddEndpoints(es.cfg.LoadAssignmentsFromEndpoints(eps)); err != nil {
+	if err := es.s.AddEndpoints(ctx, es.cfg.LoadAssignmentsFromEndpoints(eps)); err != nil {
+		logError(ctx)
 		return fmt.Errorf("add endpoints: %v", err)
 	}
 	return nil
 }
 func (es *EndpointStore) Update(obj interface{}) error {
-	Logger.Debug("Update endpoints")
+	ctx, c := startOp("endpoints", "update")
+	defer c()
 	eps, ok := obj.(*v1.Endpoints)
 	if !ok {
+		logError(ctx)
 		return fmt.Errorf("update endpoints: got non-endpoints object: %#v", obj)
 	}
-	if err := es.s.AddEndpoints(es.cfg.LoadAssignmentsFromEndpoints(eps)); err != nil {
+	if err := es.s.AddEndpoints(ctx, es.cfg.LoadAssignmentsFromEndpoints(eps)); err != nil {
+		logError(ctx)
 		return fmt.Errorf("update endpoints: %v", err)
 	}
 	return nil
 }
 func (es *EndpointStore) Delete(obj interface{}) error {
-	Logger.Debug("Delete endpoints")
+	ctx, c := startOp("endpoints", "update")
+	defer c()
 	eps, ok := obj.(*v1.Endpoints)
 	if !ok {
+		logError(ctx)
 		return fmt.Errorf("delete endpoints: got non-endpoints object: %#v", obj)
 	}
 	as := es.cfg.LoadAssignmentsFromEndpoints(eps)
 	for _, a := range as {
-		es.s.DeleteEndpoints(a.GetClusterName())
+		es.s.DeleteEndpoints(ctx, a.GetClusterName())
 	}
 	return nil
 }
 func (es *EndpointStore) List() []interface{} {
 	Logger.Debug("List endpoints")
-	// need
-	return nil //result
+	return nil
 }
 
 func (es *EndpointStore) ListKeys() []string {
 	Logger.Debug("ListKeys endpoints")
-	// need
-	return nil //result
+	return nil
 }
 func (es *EndpointStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
 	Logger.Debug("Get endpoints")
@@ -474,16 +528,19 @@ func (es *EndpointStore) GetByKey(key string) (item interface{}, exists bool, er
 	return nil, false, errors.New("clusterwatcher.GetByKey unimplemented")
 }
 func (es *EndpointStore) Replace(objs []interface{}, _ string) error {
-	Logger.Debug("Replace endpoints")
+	ctx, c := startOp("endpoints", "replace")
+	defer c()
 	var as []*envoy_api_v2.ClusterLoadAssignment
 	for _, obj := range objs {
 		eps, ok := obj.(*v1.Endpoints)
 		if !ok {
+			logError(ctx)
 			return fmt.Errorf("replace endpoints: got non-endpoints object: %#v", obj)
 		}
 		as = append(as, es.cfg.LoadAssignmentsFromEndpoints(eps)...)
 	}
-	if err := es.s.ReplaceEndpoints(as); err != nil {
+	if err := es.s.ReplaceEndpoints(ctx, as); err != nil {
+		logError(ctx)
 		return fmt.Errorf("replace endpoints: %v", err)
 	}
 	return nil

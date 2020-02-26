@@ -2,6 +2,8 @@
 package cds
 
 import (
+	"context"
+
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	"github.com/jrockway/ekglue/pkg/xds"
 	"github.com/prometheus/client_golang/prometheus"
@@ -78,18 +80,18 @@ func (s *Server) ListClusters() []*envoy_api_v2.Cluster {
 }
 
 // AddClusters adds or updates clusters, and notifies all connected clients of the change.
-func (s *Server) AddClusters(cs []*envoy_api_v2.Cluster) error {
-	return s.Clusters.Add(clustersToResources(cs))
+func (s *Server) AddClusters(ctx context.Context, cs []*envoy_api_v2.Cluster) error {
+	return s.Clusters.Add(ctx, clustersToResources(cs))
 }
 
 // DeleteCluster deletes a cluster by name, and notifies all connected clients of the change.
-func (s *Server) DeleteCluster(name string) {
-	s.Clusters.Delete(name)
+func (s *Server) DeleteCluster(ctx context.Context, name string) {
+	s.Clusters.Delete(ctx, name)
 }
 
 // ReplaceClusters replaces all tracked clusters with a new list of clusters.
-func (s *Server) ReplaceClusters(cs []*envoy_api_v2.Cluster) error {
-	return s.Clusters.Replace(clustersToResources(cs))
+func (s *Server) ReplaceClusters(ctx context.Context, cs []*envoy_api_v2.Cluster) error {
+	return s.Clusters.Replace(ctx, clustersToResources(cs))
 }
 
 // ListEndpoints returns the load assigments / endpoints that we are managing.
@@ -98,19 +100,19 @@ func (s *Server) ListEndpoints() []*envoy_api_v2.ClusterLoadAssignment {
 }
 
 // AddEndpoints adds or updates endpoints, and notifies all connected clients of the change.
-func (s *Server) AddEndpoints(es []*envoy_api_v2.ClusterLoadAssignment) error {
-	return s.Endpoints.Add(loadAssignmentsToResources(es))
+func (s *Server) AddEndpoints(ctx context.Context, es []*envoy_api_v2.ClusterLoadAssignment) error {
+	return s.Endpoints.Add(ctx, loadAssignmentsToResources(es))
 }
 
 // DeleteEndpoints deletes a load assignment by name, and notifies all connected clients of the
 // change.  A load assignemnt may contain many endpoints, this deletes them all.
-func (s *Server) DeleteEndpoints(name string) {
-	s.Endpoints.Delete(name)
+func (s *Server) DeleteEndpoints(ctx context.Context, name string) {
+	s.Endpoints.Delete(ctx, name)
 }
 
 // ReplaceEndpoints replaces all load assignments with a new set of load assignments.
-func (s *Server) ReplaceEndpoints(es []*envoy_api_v2.ClusterLoadAssignment) error {
-	return s.Endpoints.Replace(loadAssignmentsToResources(es))
+func (s *Server) ReplaceEndpoints(ctx context.Context, es []*envoy_api_v2.ClusterLoadAssignment) error {
+	return s.Endpoints.Replace(ctx, loadAssignmentsToResources(es))
 }
 
 // StreamClusters implements CDS.

@@ -93,6 +93,7 @@ func resourceName(r Resource) string {
 
 // Update is information about a resource change.
 type update struct {
+	parent    opentracing.Span
 	resources map[string]struct{} // set of resources that changed; must not be written to
 }
 
@@ -199,7 +200,7 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 	m.version++
 	xdsConfigVersions.WithLabelValues(m.Name, m.Type, m.versionString()).SetToCurrentTime()
 
-	u := update{resources: make(map[string]struct{})}
+	u := update{parent: opentracing.SpanFromContext(ctx), resources: make(map[string]struct{})}
 	for _, name := range resources {
 		u.resources[name] = struct{}{}
 	}
@@ -227,7 +228,7 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 }
 
 // Add adds or replaces (by name) managed resources, and notifies connected clients of the change.
-func (m *Manager) Add(rs []Resource) error {
+func (m *Manager) Add(ctx context.Context, rs []Resource) error {
 	m.Lock()
 	defer m.Unlock()
 	var changed []string
@@ -245,13 +246,13 @@ func (m *Manager) Add(rs []Resource) error {
 		changed = append(changed, n)
 		m.resources[n] = r
 	}
-	m.notify(context.TODO(), changed)
+	m.notify(ctx, changed)
 	return nil
 }
 
 // Replace repaces the entire set of managed resources with the provided argument, and notifies
 // connected clients of the change.
-func (m *Manager) Replace(rs []Resource) error {
+func (m *Manager) Replace(ctx context.Context, rs []Resource) error {
 	for _, r := range rs {
 		if err := r.Validate(); err != nil {
 			return fmt.Errorf("%q: %w", resourceName(r), err)
@@ -277,18 +278,18 @@ func (m *Manager) Replace(rs []Resource) error {
 		changed = append(changed, n)
 		m.Logger.Info("resource deleted", zap.String("name", n))
 	}
-	m.notify(context.TODO(), changed)
+	m.notify(ctx, changed)
 	return nil
 }
 
 // Delete deletes a single resource by name and notifies clients of the change.
-func (m *Manager) Delete(n string) {
+func (m *Manager) Delete(ctx context.Context, n string) {
 	m.Lock()
 	defer m.Unlock()
 	if _, ok := m.resources[n]; ok {
 		delete(m.resources, n)
 		m.Logger.Info("resource deleted", zap.String("name", n))
-		m.notify(context.TODO(), []string{n})
+		m.notify(ctx, []string{n})
 	}
 }
 
@@ -425,16 +426,16 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 	var resources []string
 
 	// sendUpdate starts a new transaction and sends the current resource list.
-	sendUpdate := func() {
+	sendUpdate := func(parent opentracing.Span) {
 		res, names, err := m.BuildDiscoveryResponse(resources)
 		if err != nil {
 			l.Error("problem building response", zap.Error(err))
 			return
 		}
-		span := opentracing.StartSpan("xds_push", ext.SpanKindProducer)
-		if parent := opentracing.SpanFromContext(ctx); parent != nil {
+		span := opentracing.StartSpan("xds.push", ext.SpanKindProducer)
+		if parent != nil {
 			if parentctx := parent.Context(); parentctx != nil {
-				opentracing.FollowsFrom(parentctx)
+				opentracing.ChildOf(parentctx)
 			}
 		}
 		ext.PeerService.Set(span, node)
@@ -556,7 +557,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			} else {
 				l.Warn("envoy sent acknowledgement of unrecognized nonce; resending config", zap.String("nonce", nonce))
 			}
-			sendUpdate()
+			sendUpdate(opentracing.SpanFromContext(ctx))
 		case u := <-rCh:
 			var send bool
 			for _, name := range resources {
@@ -566,7 +567,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 				}
 			}
 			if len(resources) == 0 || send {
-				sendUpdate()
+				sendUpdate(u.parent)
 			}
 		}
 	}

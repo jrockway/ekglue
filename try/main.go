@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -70,7 +71,7 @@ func main() {
 		}),
 	}
 
-	err := svc.Endpoints.Add([]xds.Resource{
+	err := svc.Endpoints.Add(context.Background(), []xds.Resource{
 		&envoy_api_v2.ClusterLoadAssignment{
 			ClusterName: "foo",
 			Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{

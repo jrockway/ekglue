@@ -47,12 +47,15 @@ func clustersFromResponse(res *envoy_api_v2.DiscoveryResponse) ([]string, error)
 
 func TestCDSFlow(t *testing.T) {
 	s := NewServer("test")
+	ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
+	defer c()
+
 	ackCh := make(chan struct{})
 	s.Clusters.OnAck = func(a xds.Acknowledgment) {
 		ackCh <- struct{}{}
 	}
 
-	if err := s.AddClusters([]*envoy_api_v2.Cluster{{Name: "a"}}); err != nil {
+	if err := s.AddClusters(ctx, []*envoy_api_v2.Cluster{{Name: "a"}}); err != nil {
 		t.Fatalf("adding cluster 'a': %v", err)
 	}
 
@@ -88,7 +91,7 @@ func TestCDSFlow(t *testing.T) {
 		t.Fatal("context done while waiting for 1st ack")
 	}
 
-	if err := s.AddClusters([]*envoy_api_v2.Cluster{{Name: "bad"}}); err != nil {
+	if err := s.AddClusters(ctx, []*envoy_api_v2.Cluster{{Name: "bad"}}); err != nil {
 		t.Fatalf("adding cluster 'bad': %v", err)
 	}
 	res, err = stream.Await()

@@ -112,7 +112,7 @@ func TestManager(t *testing.T) {
 	assertAck(true)
 
 	// Push after adding a cluster.
-	if err := m.Add(cs("foo")); err != nil {
+	if err := m.Add(ctx, cs("foo")); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	n = assertClusters("foo")
@@ -120,13 +120,13 @@ func TestManager(t *testing.T) {
 	assertAck(true)
 
 	// Push after deleting a cluster, which Envoy did not like!
-	m.Delete("foo")
+	m.Delete(ctx, "foo")
 	n = assertClusters()
 	nack("test-1", n, "you deleted my favorite cluster!")
 	assertAck(false)
 
 	// Add a cluster again.
-	if err := m.Add(cs("foo")); err != nil {
+	if err := m.Add(ctx, cs("foo")); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	n = assertClusters("foo")
@@ -134,7 +134,7 @@ func TestManager(t *testing.T) {
 	assertAck(true)
 
 	// Replace clusters.
-	if err := m.Replace(cs("foo", "bar", "baz")); err != nil {
+	if err := m.Replace(ctx, cs("foo", "bar", "baz")); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	n = assertClusters("foo", "bar", "baz")
@@ -142,7 +142,7 @@ func TestManager(t *testing.T) {
 	assertAck(true)
 
 	// Replace clusters, send an incorrect ack.
-	if err := m.Replace(cs("foo", "baz")); err != nil {
+	if err := m.Replace(ctx, cs("foo", "baz")); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	n = assertClusters("foo", "baz")
@@ -205,7 +205,7 @@ func TestNamedSubscriptions(t *testing.T) {
 	}
 
 	// This won't block, because there are no receivers to notify.
-	m.Add([]Resource{&envoy_api_v2.ClusterLoadAssignment{ClusterName: "bar"}})
+	m.Add(ctx, []Resource{&envoy_api_v2.ClusterLoadAssignment{ClusterName: "bar"}})
 	select {
 	case res = <-resCh:
 		t.Fatalf("unexpected recv %v", res)
@@ -215,7 +215,7 @@ func TestNamedSubscriptions(t *testing.T) {
 	}
 
 	// This one will block.
-	go m.Add([]Resource{&envoy_api_v2.ClusterLoadAssignment{ClusterName: "foo"}})
+	go m.Add(ctx, []Resource{&envoy_api_v2.ClusterLoadAssignment{ClusterName: "foo"}})
 	select {
 	case res = <-resCh:
 	case <-ctx.Done():
@@ -235,7 +235,7 @@ func TestNamedSubscriptions(t *testing.T) {
 
 func TestConfigAsYAML(t *testing.T) {
 	s := NewManager("test", "", &envoy_api_v2.Cluster{})
-	err := s.Add([]Resource{&envoy_api_v2.Cluster{Name: "foo"}})
+	err := s.Add(context.Background(), []Resource{&envoy_api_v2.Cluster{Name: "foo"}})
 	if err != nil {
 		t.Fatal(err)
 	}
