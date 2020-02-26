@@ -43,6 +43,9 @@ func ConnectInCluster() (*ClusterWatcher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: get in-cluster config: %w", err)
 	}
+	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		return client.WrapRoundTripper(rt)
+	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: new client: %w", err)
