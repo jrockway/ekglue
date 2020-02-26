@@ -1,4 +1,4 @@
-FROM golang:1.13-alpine AS build
+FROM golang:1.14-alpine AS build
 RUN apk add git bzr gcc musl-dev
 WORKDIR /ekglue
 COPY go.mod go.sum /ekglue/
