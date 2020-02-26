@@ -172,6 +172,67 @@ func TestManager(t *testing.T) {
 	}
 }
 
+func TestNamedSubscriptions(t *testing.T) {
+	m := NewManager("named-subscriptions", "named-subscriptions-", &envoy_api_v2.ClusterLoadAssignment{})
+	reqCh, resCh, errCh := make(chan *envoy_api_v2.DiscoveryRequest), make(chan *envoy_api_v2.DiscoveryResponse), make(chan error)
+
+	l := zaptest.NewLogger(t, zaptest.Level(zap.DebugLevel))
+	m.Logger = l.Named("manager")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx = ctxzap.ToContext(ctx, l.Named("stream"))
+	go func() { errCh <- m.Stream(ctx, reqCh, resCh) }()
+
+	select {
+	case reqCh <- &envoy_api_v2.DiscoveryRequest{
+		VersionInfo:   "",
+		Node:          &envoy_api_v2_core.Node{Id: "test2"},
+		TypeUrl:       m.Type,
+		ResourceNames: []string{"foo"},
+	}:
+	case <-ctx.Done():
+		t.Fatal("timeout")
+	}
+
+	var res *envoy_api_v2.DiscoveryResponse
+	select {
+	case res = <-resCh:
+	case <-ctx.Done():
+		t.Fatal("timeout")
+	}
+	if got, want := len(res.GetResources()), 0; got != want {
+		t.Fatal("unexpected resource recieved")
+	}
+
+	// This won't block, because there are no receivers to notify.
+	m.Add([]Resource{&envoy_api_v2.ClusterLoadAssignment{ClusterName: "bar"}})
+	select {
+	case res = <-resCh:
+		t.Fatalf("unexpected recv %v", res)
+	case <-ctx.Done():
+		t.Fatal("unexpected timeout")
+	default:
+	}
+
+	// This one will block.
+	go m.Add([]Resource{&envoy_api_v2.ClusterLoadAssignment{ClusterName: "foo"}})
+	select {
+	case res = <-resCh:
+	case <-ctx.Done():
+		t.Fatal("timeout")
+	}
+	if got, want := len(res.GetResources()), 1; got != want {
+		t.Fatalf("unexpected resource recieved:\n  got: %v\n want: %v", got, want)
+	}
+
+	cancel()
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("stream did not exit")
+	case <-errCh:
+	}
+}
+
 func TestConfigAsYAML(t *testing.T) {
 	s := NewManager("test", "", &envoy_api_v2.Cluster{})
 	err := s.Add([]Resource{&envoy_api_v2.Cluster{Name: "foo"}})

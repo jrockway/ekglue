@@ -73,8 +73,13 @@ func resourceName(r Resource) string {
 	panic(fmt.Sprintf("unable to name resource %v", r))
 }
 
+// Update is information about a resource change.
+type update struct {
+	resources map[string]struct{} // set of resources that changed; must not be written to
+}
+
 // Session is a channel that receives notifications when the managed resources change.
-type session chan struct{}
+type session chan update
 
 // Acknowledgment is an event that represents the client accepting or rejecting a configuration.
 type Acknowledgment struct {
@@ -169,44 +174,60 @@ func (m *Manager) snapshot(want []string) ([]*any.Any, []string, string, error) 
 }
 
 // notify notifies connected clients of the change.  You must hold the Manager's lock.
-func (m *Manager) notify() {
+func (m *Manager) notify(ctx context.Context, resources []string) error {
+	if len(resources) < 1 {
+		return nil
+	}
 	m.version++
 	xdsConfigVersions.WithLabelValues(m.Name, m.Type, m.versionString()).SetToCurrentTime()
-	var blocked int
+
+	u := update{resources: make(map[string]struct{})}
+	for _, name := range resources {
+		u.resources[name] = struct{}{}
+	}
+
+	m.Logger.Debug("new resource version", zap.Int("version", m.version), zap.Strings("resources", resources))
+	var blocked []session
+	// Try sending to sessions that aren't busy.
 	for session := range m.sessions {
 		select {
-		case session <- struct{}{}:
-			m.Logger.Debug("notified session of new version", zap.Int("version", m.version))
+		case session <- u:
 		default:
-			blocked++
+			blocked = append(blocked, session)
 		}
 	}
-	if blocked > 0 {
-		m.Logger.Warn("change notification would have blocked", zap.Int("clients_missed", blocked))
+	// Then use the context to wait on busy sessions.
+	for i, session := range blocked {
+		select {
+		case session <- u:
+		case <-ctx.Done():
+			m.Logger.Warn("change notification timed out", zap.Int("sessions_missed", len(blocked)-i))
+			return ctx.Err()
+		}
 	}
+	return nil
 }
 
 // Add adds or replaces (by name) managed resources, and notifies connected clients of the change.
 func (m *Manager) Add(rs []Resource) error {
 	m.Lock()
 	defer m.Unlock()
-	var changed bool
+	var changed []string
 	for _, r := range rs {
 		n := resourceName(r)
 		if err := r.Validate(); err != nil {
 			return fmt.Errorf("%q: %w", n, err)
 		}
 		if _, overwrote := m.resources[n]; overwrote {
+			// TODO(jrockway): Check that this resource actually changed.
 			m.Logger.Info("resource updated", zap.String("name", n))
 		} else {
 			m.Logger.Info("resource added", zap.String("name", n))
 		}
-		changed = true
+		changed = append(changed, n)
 		m.resources[n] = r
 	}
-	if changed {
-		m.notify()
-	}
+	m.notify(context.TODO(), changed)
 	return nil
 }
 
@@ -220,11 +241,10 @@ func (m *Manager) Replace(rs []Resource) error {
 	}
 	m.Lock()
 	defer m.Unlock()
-	var changed bool
+	var changed []string
 	old := m.resources
 	m.resources = make(map[string]Resource)
 	for _, r := range rs {
-		changed = true
 		n := resourceName(r)
 		if _, overwrote := old[n]; overwrote {
 			m.Logger.Info("resource updated", zap.String("name", n))
@@ -232,15 +252,14 @@ func (m *Manager) Replace(rs []Resource) error {
 		} else {
 			m.Logger.Info("resource added", zap.String("name", n))
 		}
+		changed = append(changed, n)
 		m.resources[n] = r
 	}
 	for n := range old {
-		changed = true
+		changed = append(changed, n)
 		m.Logger.Info("resource deleted", zap.String("name", n))
 	}
-	if changed {
-		m.notify()
-	}
+	m.notify(context.TODO(), changed)
 	return nil
 }
 
@@ -251,7 +270,7 @@ func (m *Manager) Delete(n string) {
 	if _, ok := m.resources[n]; ok {
 		delete(m.resources, n)
 		m.Logger.Info("resource deleted", zap.String("name", n))
-		m.notify()
+		m.notify(context.TODO(), []string{n})
 	}
 }
 
@@ -416,6 +435,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			}
 			txs[res.GetNonce()] = t
 			span.LogEvent("pushed resources")
+			timer.Stop()
 		case <-timer.C:
 			l.Info("push timed out", zap.Object("tx", t))
 			ext.LogError(span, errors.New("push timed out"))
@@ -512,8 +532,17 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 				l.Warn("envoy sent acknowledgement of unrecognized nonce; resending config", zap.String("nonce", nonce))
 			}
 			sendUpdate()
-		case <-rCh:
-			sendUpdate()
+		case u := <-rCh:
+			var send bool
+			for _, name := range resources {
+				if _, ok := u.resources[name]; ok {
+					send = true
+					break
+				}
+			}
+			if len(resources) == 0 || send {
+				sendUpdate()
+			}
 		}
 	}
 }
@@ -600,9 +629,9 @@ func (m *Manager) ConfigAsYAML(verbose bool) ([]byte, error) {
 // ServeHTTP dumps the currently-tracked resources as YAML.
 //
 // It will normally omit defaults, but with "?verbose" in the query params, it will print those too.
-func (s *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (m *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	_, verbose := req.URL.Query()["verbose"]
-	ya, err := s.ConfigAsYAML(verbose)
+	ya, err := m.ConfigAsYAML(verbose)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
