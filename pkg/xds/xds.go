@@ -93,7 +93,7 @@ func resourceName(r Resource) string {
 
 // Update is information about a resource change.
 type update struct {
-	parent    opentracing.Span
+	ctx       context.Context     // context to extract an opentracing parent span from
 	resources map[string]struct{} // set of resources that changed; must not be written to
 }
 
@@ -200,7 +200,7 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 	m.version++
 	xdsConfigVersions.WithLabelValues(m.Name, m.Type, m.versionString()).SetToCurrentTime()
 
-	u := update{parent: opentracing.SpanFromContext(ctx), resources: make(map[string]struct{})}
+	u := update{ctx: ctx, resources: make(map[string]struct{})}
 	for _, name := range resources {
 		u.resources[name] = struct{}{}
 	}
@@ -426,18 +426,14 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 	var resources []string
 
 	// sendUpdate starts a new transaction and sends the current resource list.
-	sendUpdate := func(parent opentracing.Span) {
+	sendUpdate := func(ctx context.Context) {
 		res, names, err := m.BuildDiscoveryResponse(resources)
 		if err != nil {
 			l.Error("problem building response", zap.Error(err))
 			return
 		}
-		span := opentracing.StartSpan("xds.push", ext.SpanKindProducer)
-		if parent != nil {
-			if parentctx := parent.Context(); parentctx != nil {
-				opentracing.ChildOf(parentctx)
-			}
-		}
+
+		span, ctx := opentracing.StartSpanFromContext(ctx, "xds.push", ext.SpanKindConsumer)
 		ext.PeerService.Set(span, node)
 		span.SetTag("xds_type", m.Type)
 		span.SetTag("xds_version", res.GetVersionInfo())
@@ -557,7 +553,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			} else {
 				l.Warn("envoy sent acknowledgement of unrecognized nonce; resending config", zap.String("nonce", nonce))
 			}
-			sendUpdate(opentracing.SpanFromContext(ctx))
+			sendUpdate(ctx)
 		case u := <-rCh:
 			var send bool
 			for _, name := range resources {
@@ -567,7 +563,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 				}
 			}
 			if len(resources) == 0 || send {
-				sendUpdate(u.parent)
+				sendUpdate(u.ctx)
 			}
 		}
 	}
