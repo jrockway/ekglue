@@ -448,20 +448,12 @@ func TestLocality(t *testing.T) {
 		{
 			localityConfig: nil,
 			input:          "host0",
-			want: &envoy_api_v2_core.Locality{
-				Region:  "",
-				Zone:    "",
-				SubZone: "",
-			},
+			want:           nil,
 		},
 		{
 			localityConfig: &LocalityConfig{},
 			input:          "host0",
-			want: &envoy_api_v2_core.Locality{
-				Region:  "",
-				Zone:    "",
-				SubZone: "",
-			},
+			want:           nil,
 		},
 		{
 			localityConfig: &LocalityConfig{

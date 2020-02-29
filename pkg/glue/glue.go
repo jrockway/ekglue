@@ -281,8 +281,13 @@ func extractLabel(node *v1.Node, hostname string, rule *Field) string {
 	return labels[rule.Label]
 }
 
-// LocalityFromHost returns a locality record for the provided host.
+// LocalityFromHost returns a locality record for the provided host.  nil is returned if there is no
+// possible way to generate a locality.
 func (l *LocalityConfig) LocalityFromHost(hosts cache.Store, hostname string) *envoy_api_v2_core.Locality {
+	if l == nil || l.RegionFrom == nil && l.ZoneFrom == nil && l.SubZoneFrom == nil {
+		return nil
+	}
+
 	result := new(envoy_api_v2_core.Locality)
 	var node *v1.Node
 	if hosts != nil {
