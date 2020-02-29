@@ -11,6 +11,7 @@ import (
 	"github.com/jrockway/opinionated-server/server"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"k8s.io/client-go/tools/cache"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 )
@@ -66,14 +67,34 @@ func main() {
 		if err != nil {
 			zap.L().Fatal("problem reading config file", zap.String("filename", filename), zap.Error(err))
 		}
+	} else {
+		zap.L().Info("using default config")
 	}
+
+	ns := cache.NewStore(cache.DeletionHandlingMetaNamespaceKeyFunc)
+	http.Handle("/localities", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		yaml, err := cfg.EndpointConfig.Locality.LocalitiesAsYAML(ns)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		w.Write(yaml)
+	}))
+	zap.L().Info("pre-filling node store")
+	if err := watcher.ListNodes(ns); err != nil {
+		zap.L().Fatal("problem listing nodes", zap.Error(err))
+	}
+	go func() {
+		if err := watcher.WatchNodes(context.Background(), ns); err != nil {
+			zap.L().Fatal("node watch unexpectedly exited", zap.Error(err))
+		}
+	}()
 	go func() {
 		if err := watcher.WatchServices(context.Background(), cfg.ClusterConfig.Store(svc)); err != nil {
 			zap.L().Fatal("service watch unexpectedly exited", zap.Error(err))
 		}
 	}()
 	go func() {
-		if err := watcher.WatchEndpoints(context.Background(), cfg.EndpointConfig.Store(svc)); err != nil {
+		if err := watcher.WatchEndpoints(context.Background(), cfg.EndpointConfig.Store(ns, svc)); err != nil {
 			zap.L().Fatal("endpoints watch unexpectedly exited", zap.Error(err))
 		}
 	}()

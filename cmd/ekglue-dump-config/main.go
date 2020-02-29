@@ -10,6 +10,7 @@ import (
 	"github.com/jrockway/ekglue/pkg/cds"
 	"github.com/jrockway/ekglue/pkg/glue"
 	"github.com/jrockway/ekglue/pkg/k8s"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
 )
 
@@ -37,23 +38,35 @@ func main() {
 		}
 	} else {
 		cfg = glue.DefaultConfig()
+		klog.Infof("using default config")
 	}
 
 	server := cds.NewServer("ekglue-dump-config")
-	if err := w.ListEndpoints(cfg.EndpointConfig.Store(server)); err != nil {
+
+	nodes := cache.NewStore(cache.MetaNamespaceKeyFunc)
+	if err := w.ListNodes(nodes); err != nil {
+		klog.Fatalf("list nodes: %v", err)
+	}
+	if err := w.ListEndpoints(cfg.EndpointConfig.Store(nodes, server)); err != nil {
 		klog.Fatalf("list endpoints: %v", err)
 	}
 	if err := w.ListServices(cfg.ClusterConfig.Store(server)); err != nil {
 		klog.Fatalf("list services: %v", err)
 	}
+	lBytes, err := cfg.EndpointConfig.Locality.LocalitiesAsYAML(nodes)
+	if err != nil {
+		klog.Fatalf("dump locality yaml: %v", err)
+	}
 	epBytes, err := server.Endpoints.ConfigAsYAML(*verbose)
 	if err != nil {
-		klog.Fatalf("dump yaml: %v", err)
+		klog.Fatalf("dump endpoints yaml: %v", err)
 	}
 	cBytes, err := server.Clusters.ConfigAsYAML(*verbose)
 	if err != nil {
-		klog.Fatalf("dump yaml: %v", err)
+		klog.Fatalf("dump clusters yaml: %v", err)
 	}
-	fmt.Printf("%s\n", bytes.TrimSpace(epBytes))
+
+	fmt.Printf("%s\n---\n", bytes.TrimSpace(lBytes))
+	fmt.Printf("%s\n---\n", bytes.TrimSpace(epBytes))
 	fmt.Printf("%s\n", bytes.TrimSpace(cBytes))
 }

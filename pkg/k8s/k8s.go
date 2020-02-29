@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/jrockway/opinionated-server/client"
 	v1 "k8s.io/api/core/v1"
@@ -68,7 +69,8 @@ func (cw *ClusterWatcher) ListServices(s cache.Store) error {
 	if err != nil {
 		return fmt.Errorf("list: %v", err)
 	}
-	for _, svc := range raw.(*v1.ServiceList).Items {
+	for _, rawSvc := range raw.(*v1.ServiceList).Items {
+		svc := rawSvc
 		if err := s.Add(&svc); err != nil {
 			return fmt.Errorf("add service: %v", err)
 		}
@@ -91,9 +93,34 @@ func (cw *ClusterWatcher) ListEndpoints(s cache.Store) error {
 	if err != nil {
 		return fmt.Errorf("list: %v", err)
 	}
-	for _, svc := range raw.(*v1.EndpointsList).Items {
-		if err := s.Add(&svc); err != nil {
+	for _, rawEp := range raw.(*v1.EndpointsList).Items {
+		ep := rawEp
+		if err := s.Add(&ep); err != nil {
 			return fmt.Errorf("add endpoint: %v", err)
+		}
+	}
+	return nil
+}
+
+// WatchNodes notifes the provided cache.Store of changes to nodes.
+func (cw *ClusterWatcher) WatchNodes(ctx context.Context, s cache.Store) error {
+	lw := cache.NewListWatchFromClient(cw.coreV1Client, "nodes", "", fields.Everything())
+	r := cache.NewReflector(lw, &v1.Node{}, s, time.Minute)
+	r.Run(ctx.Done())
+	return nil
+}
+
+// ListNodes sends all nodes to the provided cache.Store.
+func (cw *ClusterWatcher) ListNodes(s cache.Store) error {
+	lw := cache.NewListWatchFromClient(cw.coreV1Client, "nodes", "", fields.Everything())
+	raw, err := lw.List(metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("list: %v", err)
+	}
+	for _, rawNode := range raw.(*v1.NodeList).Items {
+		node := rawNode // this is because &rawNode points at the final node after the loop exits
+		if err := s.Add(&node); err != nil {
+			return fmt.Errorf("add node: %v", err)
 		}
 	}
 	return nil

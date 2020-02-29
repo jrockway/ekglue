@@ -1,6 +1,7 @@
 package glue
 
 import (
+	"encoding/json"
 	"sort"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/yaml"
 )
 
 func TestClustersFromService(t *testing.T) {
@@ -433,7 +435,7 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 			IncludeNotReady: true,
 			Locality: &LocalityConfig{
 				RegionFrom: &Field{
-					Literal: "region0",
+					Label: "topology.kubernetes.io/region",
 				},
 				ZoneFrom: &Field{
 					UseHostname: true,
@@ -444,10 +446,41 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 			},
 		},
 	}
+	nodes := cache.NewStore(cache.MetaNamespaceKeyFunc)
+	nodes.Add(&v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "host0",
+			Labels: map[string]string{
+				"topology.kubernetes.io/region":            "region0",
+				"topology.kubernetes.io/zone":              "region0-zone0",
+				"failure-domain.beta.kubernetes.io/region": "region0",
+				"failure-domain.beta.kubernetes.io/zone":   "region0-zone0",
+			},
+		},
+	})
+	nodes.Add(&v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "host1",
+			Labels: map[string]string{
+				"topology.kubernetes.io/region":            "region0",
+				"topology.kubernetes.io/zone":              "region0-zone0",
+				"failure-domain.beta.kubernetes.io/region": "region0",
+				"failure-domain.beta.kubernetes.io/zone":   "region0-zone0",
+			},
+		},
+	})
 
 	for _, test := range testData {
 		t.Run(test.name, func(t *testing.T) {
-			got := cfg.EndpointConfig.LoadAssignmentsFromEndpoints(test.endpoints)
+			got := cfg.EndpointConfig.LoadAssignmentsFromEndpoints(nodes, test.endpoints)
 			if diff := cmp.Diff(got, test.want); diff != "" {
 				t.Errorf("endpoints:\n  got: %v\n want: %v\n diff: %v", got, test.want, diff)
 			}
@@ -572,5 +605,52 @@ func TestLocality(t *testing.T) {
 		if want := test.want; !proto.Equal(got, want) {
 			t.Errorf("test %d: locality:\n  got: %#v\n want: %#v", i, got, want)
 		}
+	}
+}
+
+func TestLocalitiesAsYAML(t *testing.T) {
+	s := cache.NewStore(cache.MetaNamespaceKeyFunc)
+	s.Add(&v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "host0",
+			Labels: map[string]string{
+				"topology.kubernetes.io/region":            "region0",
+				"topology.kubernetes.io/zone":              "region0-zone0",
+				"failure-domain.beta.kubernetes.io/region": "region0",
+				"failure-domain.beta.kubernetes.io/zone":   "region0-zone0",
+			},
+		},
+	})
+	l := &LocalityConfig{
+		RegionFrom: &Field{
+			Label: "topology.kubernetes.io/region",
+		},
+		ZoneFrom: &Field{
+			Label: "topology.kubernetes.io/zone",
+		},
+		SubZoneFrom: &Field{
+			UseHostname: true,
+		},
+	}
+
+	locBytes, err := l.LocalitiesAsYAML(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	locJSON, err := yaml.YAMLToJSON(locBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nl := &nodeLocalities{Localities: make(map[string]json.RawMessage)}
+	if err := json.Unmarshal(locJSON, nl); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(nl.Localities), 1; got != want {
+		t.Errorf("host count:\n  got: %v\n want: %v", got, want)
 	}
 }

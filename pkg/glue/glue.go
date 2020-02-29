@@ -344,9 +344,38 @@ func (l *LocalityConfig) LocalityFromHost(hosts cache.Store, hostname string) *e
 	return result
 }
 
+type nodeLocalities struct {
+	Localities map[string]json.RawMessage `json:"localities"`
+}
+
+// LocalitiesAsYAML returns a YAML string showing the configured locality for every node in the
+// provided cache.Store.
+func (l *LocalityConfig) LocalitiesAsYAML(nodes cache.Store) ([]byte, error) {
+	localities := &nodeLocalities{Localities: make(map[string]json.RawMessage)}
+	jsonm := &jsonpb.Marshaler{EmitDefaults: false, OrigName: true}
+	for _, obj := range nodes.List() {
+		node := obj.(*v1.Node)
+		locality := l.LocalityFromHost(nodes, node.GetName())
+		locJSON, err := jsonm.MarshalToString(locality)
+		if err != nil {
+			return nil, fmt.Errorf("marshal json for node %s: %v", node.GetName(), err)
+		}
+		localities.Localities[node.GetName()] = json.RawMessage(locJSON)
+	}
+	localitiesJSON, err := json.Marshal(localities)
+	if err != nil {
+		return nil, fmt.Errorf("marshal localities: %v", err)
+	}
+	localitiesYAML, err := yaml.JSONToYAML([]byte(localitiesJSON))
+	if err != nil {
+		return nil, fmt.Errorf("convert json to yaml: %v", err)
+	}
+	return localitiesYAML, nil
+}
+
 // LoadAssignmentFromEndpoints translates a Kubernetes endpoints object into a set of Envoy
 // ClusterLoadAssignments.
-func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envoy_api_v2.ClusterLoadAssignment {
+func (c *EndpointConfig) LoadAssignmentsFromEndpoints(nodeStore cache.Store, eps *v1.Endpoints) []*envoy_api_v2.ClusterLoadAssignment {
 	if eps == nil {
 		return nil
 	}
@@ -387,7 +416,7 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envo
 	for cluster, endpointsByHost := range endpointsByClusterByHost {
 		var localityEndpoints []*envoy_api_v2_endpoint.LocalityLbEndpoints
 		for host, endpoints := range endpointsByHost {
-			locality := c.Locality.LocalityFromHost(nil, host)
+			locality := c.Locality.LocalityFromHost(nodeStore, host)
 			sort.Slice(endpoints, func(i, j int) bool {
 				return endpoints[i].String() < endpoints[j].String()
 			})
@@ -546,16 +575,18 @@ func (cs *ClusterStore) Resync() error {
 // EndpointStore is a cache.Store that receives endpoints and converts them to
 // ClusterLoadAssignment objects for EDS.
 type EndpointStore struct {
-	cfg *EndpointConfig
-	s   *cds.Server
+	cfg       *EndpointConfig
+	s         *cds.Server
+	nodeStore cache.Store
 }
 
-// Store returns a cache.Store that allows a Kubernetes reflector to sync endpoint changes to a CDS
+// Store returns a cache.Store that allows a Kubernetes reflector to sync endpoint changes to an EDS
 // server.
-func (c *EndpointConfig) Store(s *cds.Server) *EndpointStore {
+func (c *EndpointConfig) Store(nodeStore cache.Store, s *cds.Server) *EndpointStore {
 	return &EndpointStore{
-		cfg: c,
-		s:   s,
+		cfg:       c,
+		s:         s,
+		nodeStore: nodeStore,
 	}
 }
 
@@ -567,7 +598,7 @@ func (es *EndpointStore) Add(obj interface{}) error {
 		logError(ctx)
 		return fmt.Errorf("add endpoints: got non-endpoints object: %#v", obj)
 	}
-	if err := es.s.AddEndpoints(ctx, es.cfg.LoadAssignmentsFromEndpoints(eps)); err != nil {
+	if err := es.s.AddEndpoints(ctx, es.cfg.LoadAssignmentsFromEndpoints(es.nodeStore, eps)); err != nil {
 		logError(ctx)
 		return fmt.Errorf("add endpoints: %v", err)
 	}
@@ -581,7 +612,7 @@ func (es *EndpointStore) Update(obj interface{}) error {
 		logError(ctx)
 		return fmt.Errorf("update endpoints: got non-endpoints object: %#v", obj)
 	}
-	if err := es.s.AddEndpoints(ctx, es.cfg.LoadAssignmentsFromEndpoints(eps)); err != nil {
+	if err := es.s.AddEndpoints(ctx, es.cfg.LoadAssignmentsFromEndpoints(es.nodeStore, eps)); err != nil {
 		logError(ctx)
 		return fmt.Errorf("update endpoints: %v", err)
 	}
@@ -595,7 +626,7 @@ func (es *EndpointStore) Delete(obj interface{}) error {
 		logError(ctx)
 		return fmt.Errorf("delete endpoints: got non-endpoints object: %#v", obj)
 	}
-	as := es.cfg.LoadAssignmentsFromEndpoints(eps)
+	as := es.cfg.LoadAssignmentsFromEndpoints(es.nodeStore, eps)
 	for _, a := range as {
 		es.s.DeleteEndpoints(ctx, a.GetClusterName())
 	}
@@ -628,7 +659,7 @@ func (es *EndpointStore) Replace(objs []interface{}, _ string) error {
 			logError(ctx)
 			return fmt.Errorf("replace endpoints: got non-endpoints object: %#v", obj)
 		}
-		as = append(as, es.cfg.LoadAssignmentsFromEndpoints(eps)...)
+		as = append(as, es.cfg.LoadAssignmentsFromEndpoints(es.nodeStore, eps)...)
 	}
 	if err := es.s.ReplaceEndpoints(ctx, as); err != nil {
 		logError(ctx)

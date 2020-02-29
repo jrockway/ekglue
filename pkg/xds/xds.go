@@ -13,7 +13,7 @@ import (
 	"time"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	"github.com/gogo/protobuf/jsonpb"
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/any"

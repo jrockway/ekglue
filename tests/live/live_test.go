@@ -362,7 +362,8 @@ func TestXDS(t *testing.T) {
 			}
 
 			// Push xds information.
-			test.push(hl.Addr().(*net.TCPAddr), test.config.EndpointConfig.Store(server), test.config.ClusterConfig.Store(server))
+			nodes := cache.NewStore(cache.DeletionHandlingMetaNamespaceKeyFunc)
+			test.push(hl.Addr().(*net.TCPAddr), test.config.EndpointConfig.Store(nodes, server), test.config.ClusterConfig.Store(server))
 
 			// Try getting a request through the proxy.
 			if err := get(t, "http://localhost:9091/proxy/hello"); err != nil {
