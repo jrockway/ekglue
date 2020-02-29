@@ -198,16 +198,17 @@ func (c *ClusterConfig) GetOverride(cluster *envoy_api_v2.Cluster, svc *v1.Servi
 	return base
 }
 
-func singleTargetLoadAssignment(cluster, hostname string, port int32) *envoy_api_v2.ClusterLoadAssignment {
+func singleTargetLoadAssignment(cluster, hostname string, port int32, proto envoy_api_v2_core.SocketAddress_Protocol) *envoy_api_v2.ClusterLoadAssignment {
 	return &envoy_api_v2.ClusterLoadAssignment{
 		ClusterName: cluster,
 		Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{{
-			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{lbEndpoint(hostname, port, envoy_api_v2_core.HealthStatus_UNKNOWN)},
+			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
+				lbEndpoint(hostname, port, proto, envoy_api_v2_core.HealthStatus_UNKNOWN)},
 		}},
 	}
 }
 
-func lbEndpoint(hostname string, port int32, health envoy_api_v2_core.HealthStatus) *envoy_api_v2_endpoint.LbEndpoint {
+func lbEndpoint(hostname string, port int32, proto envoy_api_v2_core.SocketAddress_Protocol, health envoy_api_v2_core.HealthStatus) *envoy_api_v2_endpoint.LbEndpoint {
 	return &envoy_api_v2_endpoint.LbEndpoint{
 		HealthStatus: health,
 		HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
@@ -215,7 +216,8 @@ func lbEndpoint(hostname string, port int32, health envoy_api_v2_core.HealthStat
 				Address: &envoy_api_v2_core.Address{
 					Address: &envoy_api_v2_core.Address_SocketAddress{
 						SocketAddress: &envoy_api_v2_core.SocketAddress{
-							Address: hostname,
+							Protocol: proto,
+							Address:  hostname,
 							PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
 								PortValue: uint32(port),
 							},
@@ -235,6 +237,34 @@ func (c *ClusterConfig) isEDS(cl *envoy_api_v2.Cluster) bool {
 	return cl.GetType() == envoy_api_v2.Cluster_EDS
 }
 
+// nameCluster maps a port object from a service or endpoint to a name.  For EDS, the cluster and
+// endpoint have to map to the same name, which is why we do this in one place.  It is imperfect,
+// however, because you can have endpoints without services, and we never create a cluster for
+// those.  We also return the Envoy protocol of the port here, because it's convenient, not because
+// it's good design.
+func nameCluster(namespace, serviceOrEndpoint, portName string, portNumber int32, portProtocol v1.Protocol) (string, envoy_api_v2_core.SocketAddress_Protocol) {
+	var protoSuffix string
+	var envoyProtocol envoy_api_v2_core.SocketAddress_Protocol
+	switch portProtocol {
+	case v1.ProtocolTCP, "":
+		protoSuffix = ""
+		envoyProtocol = envoy_api_v2_core.SocketAddress_TCP
+	case v1.ProtocolUDP:
+		protoSuffix = ":udp"
+		envoyProtocol = envoy_api_v2_core.SocketAddress_UDP
+	case v1.ProtocolSCTP:
+		// Envoy doesn't support SCTP, so neither do we.  See Envoy issue
+		// https://github.com/envoyproxy/envoy/issues/9430
+		fallthrough
+	default:
+		return "", 0
+	}
+	if portName == "" {
+		portName = strconv.Itoa(int(portNumber))
+	}
+	return fmt.Sprintf("%s:%s:%s%s", namespace, serviceOrEndpoint, portName, protoSuffix), envoyProtocol
+}
+
 // ClustersFromService translates a Kubernetes service into a set of Envoy clusters according to the
 // config (1 cluster per service port).
 func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Cluster {
@@ -244,11 +274,12 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 	}
 	for _, port := range svc.Spec.Ports {
 		cl := c.GetBaseConfig()
-		n := port.Name
-		if n == "" {
-			n = strconv.Itoa(int(port.Port))
+		var protocol envoy_api_v2_core.SocketAddress_Protocol
+		cl.Name, protocol = nameCluster(svc.GetNamespace(), svc.GetName(), port.Name, port.Port, port.Protocol)
+		if cl.Name == "" {
+			// Ignore clusters that we can't name, probably because they use an unsupported protcol.
+			continue
 		}
-		cl.Name = fmt.Sprintf("%s:%s:%s", svc.GetNamespace(), svc.GetName(), n)
 		proto.Merge(cl, c.GetOverride(cl, svc, port))
 		if !c.isEDS(cl) {
 			if cl.ClusterDiscoveryType == nil {
@@ -256,7 +287,7 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 					Type: envoy_api_v2.Cluster_STRICT_DNS,
 				}
 			}
-			cl.LoadAssignment = singleTargetLoadAssignment(cl.Name, fmt.Sprintf("%s.%s.svc.cluster.local.", svc.GetName(), svc.GetNamespace()), port.Port)
+			cl.LoadAssignment = singleTargetLoadAssignment(cl.Name, fmt.Sprintf("%s.%s.svc.cluster.local.", svc.GetName(), svc.GetNamespace()), port.Port, protocol)
 		}
 		result = append(result, cl)
 	}
@@ -320,7 +351,7 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envo
 		return nil
 	}
 	endpointsByClusterByHost := make(map[string]map[string][]*envoy_api_v2_endpoint.LbEndpoint)
-	addEndpoint := func(addr v1.EndpointAddress, cluster string, port int32, health envoy_api_v2_core.HealthStatus) {
+	addEndpoint := func(addr v1.EndpointAddress, cluster string, port int32, protocol envoy_api_v2_core.SocketAddress_Protocol, health envoy_api_v2_core.HealthStatus) {
 		host := ""
 		if addr.NodeName != nil {
 			host = *addr.NodeName
@@ -330,26 +361,23 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envo
 			endpointsByHost = make(map[string][]*envoy_api_v2_endpoint.LbEndpoint)
 			endpointsByClusterByHost[cluster] = endpointsByHost
 		}
-		endpointsByHost[host] = append(endpointsByHost[host], lbEndpoint(addr.IP, port, health))
+		endpointsByHost[host] = append(endpointsByHost[host], lbEndpoint(addr.IP, port, protocol, health))
 	}
 
 	for _, ss := range eps.Subsets {
 		for _, port := range ss.Ports {
-			// BUG(#3): We really need to create separate clusters by protocol.
-			if port.Protocol != v1.ProtocolTCP {
+			cluster, protocol := nameCluster(eps.GetNamespace(), eps.GetName(), port.Name, port.Port, port.Protocol)
+			if cluster == "" {
+				// Ignore clusters that we can't name, probably because they use an
+				// unsupported protocol.
 				continue
 			}
-			n := port.Name
-			if n == "" {
-				n = strconv.Itoa(int(port.Port))
-			}
-			cluster := fmt.Sprintf("%s:%s:%s", eps.GetNamespace(), eps.GetName(), n)
 			for _, addr := range ss.Addresses {
-				addEndpoint(addr, cluster, port.Port, envoy_api_v2_core.HealthStatus_HEALTHY)
+				addEndpoint(addr, cluster, port.Port, protocol, envoy_api_v2_core.HealthStatus_HEALTHY)
 			}
 			if c.IncludeNotReady {
 				for _, addr := range ss.NotReadyAddresses {
-					addEndpoint(addr, cluster, port.Port, envoy_api_v2_core.HealthStatus_DEGRADED)
+					addEndpoint(addr, cluster, port.Port, protocol, envoy_api_v2_core.HealthStatus_DEGRADED)
 				}
 			}
 		}

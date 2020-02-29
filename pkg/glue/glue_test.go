@@ -52,7 +52,7 @@ func TestClustersFromService(t *testing.T) {
 					Name:                 "foo:bar:http",
 					ConnectTimeout:       ptypes.DurationProto(time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
-					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80),
+					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
 				},
 			},
 		},
@@ -84,13 +84,13 @@ func TestClustersFromService(t *testing.T) {
 					Name:                 "foo:bar:http",
 					ConnectTimeout:       ptypes.DurationProto(time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
-					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80),
+					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
 				},
 				{
 					Name:                 "foo:bar:443",
 					ConnectTimeout:       ptypes.DurationProto(time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
-					LoadAssignment:       singleTargetLoadAssignment("foo:bar:443", "bar.foo.svc.cluster.local.", 443),
+					LoadAssignment:       singleTargetLoadAssignment("foo:bar:443", "bar.foo.svc.cluster.local.", 443, envoy_api_v2_core.SocketAddress_TCP),
 				},
 			},
 		},
@@ -120,7 +120,7 @@ func TestClustersFromService(t *testing.T) {
 					ConnectTimeout:       ptypes.DurationProto(2 * time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
 					LbPolicy:             envoy_api_v2.Cluster_RANDOM,
-					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http2", "bar.foo.svc.cluster.local.", 80),
+					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http2", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
 					Http2ProtocolOptions: &envoy_api_v2_core.Http2ProtocolOptions{},
 					HealthChecks: []*envoy_api_v2_core.HealthCheck{
 						{
@@ -375,8 +375,8 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 								SubZone: "host0",
 							},
 							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-								lbEndpoint("10.0.0.1", 8080, envoy_api_v2_core.HealthStatus_HEALTHY),
-								lbEndpoint("10.0.0.2", 8080, envoy_api_v2_core.HealthStatus_DEGRADED),
+								lbEndpoint("10.0.0.1", 8080, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.2", 8080, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_DEGRADED),
 							},
 						},
 					},
@@ -391,8 +391,8 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 								SubZone: "host0",
 							},
 							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-								lbEndpoint("10.0.0.1", 1234, envoy_api_v2_core.HealthStatus_HEALTHY),
-								lbEndpoint("10.0.0.2", 1234, envoy_api_v2_core.HealthStatus_DEGRADED),
+								lbEndpoint("10.0.0.1", 1234, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.2", 1234, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_DEGRADED),
 							},
 						},
 						{
@@ -402,8 +402,24 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 								SubZone: "host1",
 							},
 							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-								lbEndpoint("10.0.0.3", 1234, envoy_api_v2_core.HealthStatus_HEALTHY),
-								lbEndpoint("10.0.0.4", 1234, envoy_api_v2_core.HealthStatus_DEGRADED),
+								lbEndpoint("10.0.0.3", 1234, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.4", 1234, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_DEGRADED),
+							},
+						},
+					},
+				},
+				{
+					ClusterName: "foo:bar:udp:udp",
+					Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{
+						{
+							Locality: &envoy_api_v2_core.Locality{
+								Region:  "region0",
+								Zone:    "host0",
+								SubZone: "host0",
+							},
+							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
+								lbEndpoint("10.0.0.1", 1234, envoy_api_v2_core.SocketAddress_UDP, envoy_api_v2_core.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.2", 1234, envoy_api_v2_core.SocketAddress_UDP, envoy_api_v2_core.HealthStatus_DEGRADED),
 							},
 						},
 					},
