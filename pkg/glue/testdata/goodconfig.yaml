@@ -1,9 +1,12 @@
 apiVersion: v1alpha
 endpoint_config:
     locality:
-        region: tests
-        zone_from: host
-        sub_zone_from: host
+        region_from:
+            literal: tests
+        zone_from:
+            label: $host
+        sub_zone_from:
+            label: $host
 cluster_config:
     base:
         connect_timeout: 2s

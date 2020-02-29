@@ -8,11 +8,13 @@ import (
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoy_type "github.com/envoyproxy/go-control-plane/envoy/type"
-	"github.com/go-test/deep"
+	"github.com/gogo/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
+	"github.com/google/go-cmp/cmp"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 )
 
 func TestClustersFromService(t *testing.T) {
@@ -200,7 +202,7 @@ func TestClustersFromService(t *testing.T) {
 			got := cfg.ClusterConfig.ClustersFromService(test.service)
 			sort.Slice(got, func(i, j int) bool { return got[i].Name < got[j].Name })
 			sort.Slice(test.want, func(i, j int) bool { return test.want[i].Name < test.want[j].Name })
-			if diff := deep.Equal(got, test.want); diff != nil {
+			if diff := cmp.Diff(got, test.want); diff != "" {
 				t.Errorf("clusters:\n  got: %v\n want: %v\n diff: %v", got, test.want, diff)
 			}
 		})
@@ -242,9 +244,9 @@ func TestLoadConfig(t *testing.T) {
 				EndpointConfig: &EndpointConfig{
 					IncludeNotReady: false,
 					Locality: &LocalityConfig{
-						Region:      "tests",
-						ZoneFrom:    "host",
-						SubZoneFrom: "host",
+						RegionFrom:  &Field{Literal: "tests"},
+						ZoneFrom:    &Field{Label: "$host"},
+						SubZoneFrom: &Field{Label: "$host"},
 					},
 				},
 			},
@@ -270,7 +272,7 @@ func TestLoadConfig(t *testing.T) {
 				t.Fatal("expected error, but got success")
 			}
 			want := test.want
-			if diff := deep.Equal(got, want); diff != nil {
+			if diff := cmp.Diff(got, want); diff != "" {
 				t.Errorf("loaded yaml:\n  got: %#v\n want: %#v\n diff: %v", got, want, diff)
 			}
 		})
@@ -293,11 +295,138 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 
 	for _, test := range testData {
 		t.Run(test.name, func(t *testing.T) {
-			cfg.ClusterConfig.ClustersFromService(nil)
-			// got := cfg.EndpointConfig.LoadAssignmentFromEndpoints(test.endpoints)
-			// if diff := deep.Equal(got, test.want); diff != nil {
-			// 	t.Errorf("endpoints:\n  got: %v\n want: %v\n diff: %v", got, test.want, diff)
-			// }
+			got := cfg.EndpointConfig.LoadAssignmentsFromEndpoints(test.endpoints)
+			if diff := cmp.Diff(got, test.want); diff != "" {
+				t.Errorf("endpoints:\n  got: %v\n want: %v\n diff: %v", got, test.want, diff)
+			}
 		})
+	}
+}
+
+func TestLocality(t *testing.T) {
+	testData := []struct {
+		localityConfig *LocalityConfig
+		input          string
+		want           *envoy_api_v2_core.Locality
+	}{
+		{
+			localityConfig: nil,
+			input:          "host0",
+			want: &envoy_api_v2_core.Locality{
+				Region:  "",
+				Zone:    "",
+				SubZone: "",
+			},
+		},
+		{
+			localityConfig: &LocalityConfig{},
+			input:          "host0",
+			want: &envoy_api_v2_core.Locality{
+				Region:  "",
+				Zone:    "",
+				SubZone: "",
+			},
+		},
+		{
+			localityConfig: &LocalityConfig{
+				RegionFrom: &Field{
+					Literal: "region",
+				},
+			},
+			input: "host0",
+			want: &envoy_api_v2_core.Locality{
+				Region:  "region",
+				Zone:    "",
+				SubZone: "",
+			},
+		},
+		{
+			localityConfig: &LocalityConfig{
+				RegionFrom: &Field{
+					Label: "topology.kubernetes.io/region",
+				},
+			},
+			input: "host0",
+			want: &envoy_api_v2_core.Locality{
+				Region:  "region0",
+				Zone:    "",
+				SubZone: "",
+			},
+		},
+		{
+			localityConfig: &LocalityConfig{
+				RegionFrom: &Field{
+					Label: "topology.kubernetes.io/region",
+				},
+			},
+			input: "host2",
+			want: &envoy_api_v2_core.Locality{
+				Region:  "",
+				Zone:    "",
+				SubZone: "",
+			},
+		},
+		{
+			localityConfig: &LocalityConfig{
+				RegionFrom: &Field{
+					Label: "topology.kubernetes.io/region",
+				},
+				ZoneFrom: &Field{
+					Label: "topology.kubernetes.io/zone",
+				},
+				SubZoneFrom: &Field{
+					UseHostname: true,
+				},
+			},
+			input: "host0",
+			want: &envoy_api_v2_core.Locality{
+				Region:  "region0",
+				Zone:    "region0-zone0",
+				SubZone: "host0",
+			},
+		},
+		{
+			localityConfig: &LocalityConfig{
+				RegionFrom: &Field{
+					Label: "topology.kubernetes.io/region",
+				},
+				ZoneFrom: &Field{
+					Label: "topology.kubernetes.io/zone",
+				},
+				SubZoneFrom: &Field{
+					UseHostname: true,
+				},
+			},
+			input: "host2",
+			want: &envoy_api_v2_core.Locality{
+				Region:  "",
+				Zone:    "",
+				SubZone: "host2",
+			},
+		},
+	}
+
+	nodes := cache.NewStore(cache.MetaNamespaceKeyFunc)
+	nodes.Add(&v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "host0",
+			Labels: map[string]string{
+				"topology.kubernetes.io/region":            "region0",
+				"topology.kubernetes.io/zone":              "region0-zone0",
+				"failure-domain.beta.kubernetes.io/region": "region0",
+				"failure-domain.beta.kubernetes.io/zone":   "region0-zone0",
+			},
+		},
+	})
+
+	for i, test := range testData {
+		got := test.localityConfig.LocalityFromHost(nodes, test.input)
+		if want := test.want; !proto.Equal(got, want) {
+			t.Errorf("test %d: locality:\n  got: %#v\n want: %#v", i, got, want)
+		}
 	}
 }

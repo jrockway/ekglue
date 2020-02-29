@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/yaml"
 )
 
@@ -101,11 +102,20 @@ func (c *ClusterConfig) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// Field specifies a value to be selected from a Kubernetes resource.
+//
+// A non-empty Literal will override any Label selector.
+type Field struct {
+	Literal     string `json:"literal"`      // Specify a literal string to use.
+	Label       string `json:"label"`        // Select the value of the named label.
+	UseHostname bool   `json:"use_hostname"` // If true, use the hostname as the value of the field.
+}
+
 // LocalityConfig configures how to determine the locality of an endpoint.
 type LocalityConfig struct {
-	Region      string `json:"region"`
-	ZoneFrom    string `json:"zone_from"`
-	SubZoneFrom string `json:"sub_zone_from"`
+	RegionFrom  *Field `json:"region_from"`
+	ZoneFrom    *Field `json:"zone_from"`
+	SubZoneFrom *Field `json:"sub_zone_from"`
 }
 
 // EndpointConfig configures creation of Envoy cluster load assignments from Kubernetes endpoints.
@@ -252,9 +262,57 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 	return result
 }
 
-// LoadAssignmentFromEndpoints translates a Kubernetes endpoints object into an Envoy
-// ClusterLoadAssignment.  The returned load assignment is never nil.
+// extractLabel extracts a label from a node.
+func extractLabel(node *v1.Node, hostname string, rule *Field) string {
+	if rule == nil {
+		return ""
+	}
+	if rule.Literal != "" {
+		return rule.Literal
+	}
+	if rule.UseHostname {
+		return hostname
+	}
+	if node == nil {
+		return ""
+	}
+	labels := node.GetLabels()
+	return labels[rule.Label]
+}
+
+// LocalityFromHost returns a locality record for the provided host.
+func (l *LocalityConfig) LocalityFromHost(hosts cache.Store, hostname string) *envoy_api_v2_core.Locality {
+	result := new(envoy_api_v2_core.Locality)
+	var node *v1.Node
+	if hosts != nil {
+		obj, exists, err := hosts.GetByKey(hostname)
+		if err != nil {
+			zap.L().Error("problem looking up node by hostname", zap.String("hostname", hostname), zap.Error(err))
+		}
+		if host, ok := obj.(*v1.Node); ok && exists {
+			node = host
+		}
+	}
+	if l != nil {
+		if l.RegionFrom != nil {
+			result.Region = extractLabel(node, hostname, l.RegionFrom)
+		}
+		if l.ZoneFrom != nil {
+			result.Zone = extractLabel(node, hostname, l.ZoneFrom)
+		}
+		if l.SubZoneFrom != nil {
+			result.SubZone = extractLabel(node, hostname, l.SubZoneFrom)
+		}
+	}
+	return result
+}
+
+// LoadAssignmentFromEndpoints translates a Kubernetes endpoints object into a set of Envoy
+// ClusterLoadAssignments.
 func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envoy_api_v2.ClusterLoadAssignment {
+	if eps == nil {
+		return nil
+	}
 	endpointsByClusterByHost := make(map[string]map[string][]*envoy_api_v2_endpoint.LbEndpoint)
 	addEndpoint := func(addr v1.EndpointAddress, cluster string, port int32, health envoy_api_v2_core.HealthStatus) {
 		host := ""
@@ -295,16 +353,7 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envo
 	for cluster, endpointsByHost := range endpointsByClusterByHost {
 		var localityEndpoints []*envoy_api_v2_endpoint.LocalityLbEndpoints
 		for host, endpoints := range endpointsByHost {
-			locality := &envoy_api_v2_core.Locality{}
-			if c.Locality != nil {
-				locality.Region = c.Locality.Region
-				if c.Locality.ZoneFrom == "host" {
-					locality.Zone = host
-				}
-				if c.Locality.SubZoneFrom == "host" {
-					locality.SubZone = host
-				}
-			}
+			locality := c.Locality.LocalityFromHost(nil, host)
 			localityEndpoints = append(localityEndpoints, &envoy_api_v2_endpoint.LocalityLbEndpoints{
 				Locality:    locality,
 				LbEndpoints: endpoints,
