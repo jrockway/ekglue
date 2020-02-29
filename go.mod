@@ -5,7 +5,6 @@ go 1.13
 require (
 	github.com/envoyproxy/go-control-plane v0.9.2
 	github.com/go-test/deep v1.0.5
-	github.com/gogo/protobuf v1.2.2-0.20190723190241-65acae22fc9d
 	github.com/golang/protobuf v1.3.3
 	github.com/google/go-cmp v0.4.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
