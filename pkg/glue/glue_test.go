@@ -7,6 +7,7 @@ import (
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
 	envoy_type "github.com/envoyproxy/go-control-plane/envoy/type"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
@@ -280,17 +281,152 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestLoadAssignmentFromEndpoints(t *testing.T) {
+	node0 := "host0"
+	node1 := "host1"
 	testData := []struct {
 		name      string
 		endpoints *v1.Endpoints
 		want      []*envoy_api_v2.ClusterLoadAssignment
 	}{
-		{name: "empty"},
+		{
+			name:      "nil",
+			endpoints: nil,
+			want:      nil,
+		},
+		{
+			name:      "empty",
+			endpoints: &v1.Endpoints{},
+			want:      nil,
+		},
+		{
+			name: "ready_and_notready",
+			endpoints: &v1.Endpoints{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1",
+					Kind:       "Endpoints",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "foo",
+					Name:      "bar",
+				},
+				Subsets: []v1.EndpointSubset{
+					{
+						Ports: []v1.EndpointPort{
+							{
+								Name:     "port",
+								Port:     1234,
+								Protocol: v1.ProtocolTCP,
+							},
+							{
+								Name:     "debug",
+								Port:     8080,
+								Protocol: v1.ProtocolTCP,
+							},
+							{
+								Name:     "udp",
+								Port:     1234,
+								Protocol: v1.ProtocolUDP,
+							},
+						},
+						Addresses: []v1.EndpointAddress{
+							{
+								NodeName: &node0,
+								IP:       "10.0.0.1",
+							},
+						},
+						NotReadyAddresses: []v1.EndpointAddress{
+							{
+								NodeName: &node0,
+								IP:       "10.0.0.2",
+							},
+						},
+					},
+					{
+						Ports: []v1.EndpointPort{
+							{
+								Name:     "port",
+								Port:     1234,
+								Protocol: v1.ProtocolTCP,
+							},
+						},
+						Addresses: []v1.EndpointAddress{
+							{
+								NodeName: &node1,
+								IP:       "10.0.0.3",
+							},
+						},
+						NotReadyAddresses: []v1.EndpointAddress{
+							{
+								NodeName: &node1,
+								IP:       "10.0.0.4",
+							},
+						},
+					},
+				},
+			},
+			want: []*envoy_api_v2.ClusterLoadAssignment{
+				{
+					ClusterName: "foo:bar:debug",
+					Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{
+						{
+							Locality: &envoy_api_v2_core.Locality{
+								Region:  "region0",
+								Zone:    "host0",
+								SubZone: "host0",
+							},
+							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
+								lbEndpoint("10.0.0.1", 8080, envoy_api_v2_core.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.2", 8080, envoy_api_v2_core.HealthStatus_DEGRADED),
+							},
+						},
+					},
+				},
+				{
+					ClusterName: "foo:bar:port",
+					Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{
+						{
+							Locality: &envoy_api_v2_core.Locality{
+								Region:  "region0",
+								Zone:    "host0",
+								SubZone: "host0",
+							},
+							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
+								lbEndpoint("10.0.0.1", 1234, envoy_api_v2_core.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.2", 1234, envoy_api_v2_core.HealthStatus_DEGRADED),
+							},
+						},
+						{
+							Locality: &envoy_api_v2_core.Locality{
+								Region:  "region0",
+								Zone:    "host1",
+								SubZone: "host1",
+							},
+							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
+								lbEndpoint("10.0.0.3", 1234, envoy_api_v2_core.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.4", 1234, envoy_api_v2_core.HealthStatus_DEGRADED),
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
-	cfg, err := LoadConfig("testdata/load_assignment_from_endpoints_test.yaml")
-	if err != nil {
-		t.Fatal(err)
+	cfg := &Config{
+		EndpointConfig: &EndpointConfig{
+			IncludeNotReady: true,
+			Locality: &LocalityConfig{
+				RegionFrom: &Field{
+					Literal: "region0",
+				},
+				ZoneFrom: &Field{
+					UseHostname: true,
+				},
+				SubZoneFrom: &Field{
+					UseHostname: true,
+				},
+			},
+		},
 	}
 
 	for _, test := range testData {

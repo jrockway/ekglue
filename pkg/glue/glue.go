@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"sort"
 	"strconv"
 	"time"
 
@@ -354,17 +355,25 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(eps *v1.Endpoints) []*envo
 		var localityEndpoints []*envoy_api_v2_endpoint.LocalityLbEndpoints
 		for host, endpoints := range endpointsByHost {
 			locality := c.Locality.LocalityFromHost(nil, host)
+			sort.Slice(endpoints, func(i, j int) bool {
+				return endpoints[i].String() < endpoints[j].String()
+			})
 			localityEndpoints = append(localityEndpoints, &envoy_api_v2_endpoint.LocalityLbEndpoints{
 				Locality:    locality,
 				LbEndpoints: endpoints,
 			})
 		}
+		sort.Slice(localityEndpoints, func(i, j int) bool {
+			return localityEndpoints[i].Locality.String() < localityEndpoints[j].Locality.String()
+		})
 		result = append(result, &envoy_api_v2.ClusterLoadAssignment{
 			ClusterName: cluster,
 			Endpoints:   localityEndpoints,
 		})
-
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].GetClusterName() < result[j].GetClusterName()
+	})
 	return result
 }
 
