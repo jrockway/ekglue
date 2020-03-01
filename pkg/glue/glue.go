@@ -41,9 +41,33 @@ var (
 	)
 )
 
+// A matcher selects a cluster based on the current state of the generated Cluster object, the and
+// Kubernetes service + port that the Cluster is being created for.
 type Matcher struct {
 	// ClusterName matches the mangled name of a cluster (not the original service name).
+	//
+	// The mangled name is <namespace>:<service name>:<port name or number>[:udp].
 	ClusterName string `json:"cluster_name"`
+	// PortName matches the name of a port.  This exists so that if you have good port naming
+	// hygiene, more configurations can be auto-generated.  For example, you could apply
+	// "http2_protocol_options: {}" to all ports named http2.
+	//
+	// You cannot match an unnamed port with an empty port_name.
+	PortName string `json:"port_name"`
+}
+
+// Evaluate returns true if the matcher matches the provided objects.
+func (m *Matcher) Evaluate(cluster *envoy_api_v2.Cluster, svc *v1.Service, port v1.ServicePort) bool {
+	if m == nil {
+		return false
+	}
+	if m.ClusterName != "" {
+		return m.ClusterName == cluster.GetName()
+	}
+	if m.PortName != "" {
+		return m.PortName == port.Name
+	}
+	return false
 }
 
 type ClusterOverride struct {
@@ -200,7 +224,7 @@ func (c *ClusterConfig) ApplyOverride(cluster *envoy_api_v2.Cluster, svc *v1.Ser
 	for _, o := range c.Overrides {
 		var match bool
 		for _, m := range o.Match {
-			match = match || m.ClusterName == cluster.GetName()
+			match = match || m.Evaluate(cluster, svc, port)
 			if match {
 				break
 			}

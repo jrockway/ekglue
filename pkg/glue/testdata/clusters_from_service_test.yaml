@@ -4,11 +4,14 @@ cluster_config:
         connect_timeout: 1s
     overrides:
         - match:
+              - port_name: http2
+          override:
+              http2_protocol_options: {}
+        - match:
               - cluster_name: foo:bar:http2
           override:
               lb_policy: RANDOM
               connect_timeout: 2s
-              http2_protocol_options: {}
         - match:
               - cluster_name: foo:bar:http2
           override:
