@@ -534,13 +534,13 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 				// resource set, so we warn about attempting to do so.  I guess if
 				// we see this warning, it means that being "pretty sure" was
 				// incorrect.
-				zap.L().Warn("envoy changed resource subscriptions without opening a new stream", zap.Strings("new_resources", newResources))
+				l.Warn("envoy changed resource subscriptions without opening a new stream", zap.Strings("new_resources", newResources))
 				return status.Error(codes.FailedPrecondition, "resource subscriptions changed unexpectedly")
 			}
 
 			if t := req.GetTypeUrl(); t != m.Type {
-				l.Warn("ignoring wrong-type discovery request", zap.String("manager_type", m.Type), zap.String("requested_type", t))
-				continue
+				l.Error("ignoring wrong-type discovery request", zap.String("manager_type", m.Type), zap.String("requested_type", t))
+				return status.Error(codes.InvalidArgument, "wrong resource type requested")
 			}
 
 			nonce := req.GetResponseNonce()
