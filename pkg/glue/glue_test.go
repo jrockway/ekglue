@@ -59,6 +59,29 @@ func TestClustersFromService(t *testing.T) {
 			},
 		},
 		{
+			name: "unsupported sctp cluster",
+			service: &v1.Service{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Service",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bar",
+					Namespace: "foo",
+				},
+				Spec: v1.ServiceSpec{
+					Ports: []v1.ServicePort{
+						{
+							Name:     "sctp",
+							Port:     80,
+							Protocol: v1.ProtocolSCTP,
+						},
+					},
+				},
+			},
+			want: nil,
+		},
+		{
 			name: "two ports",
 			service: &v1.Service{
 				TypeMeta: metav1.TypeMeta{
@@ -328,6 +351,11 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 								Name:     "udp",
 								Port:     1234,
 								Protocol: v1.ProtocolUDP,
+							},
+							{
+								Name:     "sctp",
+								Port:     1234,
+								Protocol: v1.ProtocolSCTP,
 							},
 						},
 						Addresses: []v1.EndpointAddress{
