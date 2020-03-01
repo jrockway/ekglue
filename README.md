@@ -1,12 +1,14 @@
 # ekglue - Envoy/Kubernetes glue
 
 [![codecov](https://codecov.io/gh/jrockway/ekglue/branch/master/graph/badge.svg)](https://codecov.io/gh/jrockway/ekglue)
+[![CI](https://ci.jrock.us/api/v1/teams/main/pipelines/ekglue/jobs/tests/badge)](https://ci.jrock.us/teams/main/pipelines/ekglue/jobs/tests/)
 
 <p align="center">
 	<img src="img/logo.png" width="60%" align="center">
 </p>
 
-**Status: I'm currently using this in production, but it needs a tiny bit more cleanup before I push the containers to dockerhub and write docs.**
+**Status: I'm currently using this in production, but it needs a tiny bit more cleanup before I push
+the containers to dockerhub and write docs.**
 
 This project exists to glue together [Kubernetes](https://kubernetes.io/) and
 [Envoy](https://www.envoyproxy.io/), allowing Envoy to read Kubernetes
