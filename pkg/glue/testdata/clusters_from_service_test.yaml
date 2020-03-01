@@ -33,3 +33,7 @@ cluster_config:
                           grpc_services:
                               - envoy_grpc:
                                     cluster_name: xds
+        - match:
+              - cluster_name: foo:baz:http
+              - cluster_name: foo:baz:https
+          suppress: true

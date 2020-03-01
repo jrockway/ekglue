@@ -217,6 +217,32 @@ func TestClustersFromService(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "suppressed cluster",
+			service: &v1.Service{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Service",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "baz",
+					Namespace: "foo",
+				},
+				Spec: v1.ServiceSpec{
+					Ports: []v1.ServicePort{
+						{
+							Name: "http",
+							Port: 80,
+						},
+						{
+							Name: "https",
+							Port: 443,
+						},
+					},
+				},
+			},
+			want: nil,
+		},
 	}
 
 	cfg, err := LoadConfig("testdata/clusters_from_service_test.yaml")

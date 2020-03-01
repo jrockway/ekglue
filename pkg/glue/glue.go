@@ -48,27 +48,40 @@ type Matcher struct {
 
 type ClusterOverride struct {
 	// Match specifies a cluster to match; multiple items are OR'd.
-	Match []*Matcher `json:"match"`
+	Match []*Matcher
 	// Configuration to override if a matcher matches.
-	Override *envoy_api_v2.Cluster `json:"override"`
-	// TODO(jrockway): Eventually this "override" will have to be some sort of OverrideAction
-	// object that allows suppresing the cluster entirely, etc.
+	Override *envoy_api_v2.Cluster
+	// If true, suppress the cluster completely.
+	Suppress bool
 }
 
 func (o *ClusterOverride) UnmarshalJSON(b []byte) error {
 	tmp := struct {
 		Match    []*Matcher      `json:"match"`
 		Override json.RawMessage `json:"override"`
+		Suppress bool            `json:"suppress"`
 	}{}
 	if err := json.Unmarshal(b, &tmp); err != nil {
 		return fmt.Errorf("ClusterOverride: unmarshal into temporary structure: %w", err)
 	}
 	o.Match = tmp.Match
-	base := &envoy_api_v2.Cluster{}
-	if err := jsonpb.UnmarshalString(string(tmp.Override), base); err != nil {
-		return fmt.Errorf("ClusterOverride: unmarshal Override: %w", err)
+	o.Suppress = tmp.Suppress
+	if len(tmp.Override) > 0 {
+		base := &envoy_api_v2.Cluster{}
+		if err := jsonpb.UnmarshalString(string(tmp.Override), base); err != nil {
+			return fmt.Errorf("ClusterOverride: unmarshal Override: %w", err)
+		}
+		o.Override = base
 	}
-	o.Override = base
+	if len(o.Match) == 0 {
+		return fmt.Errorf("ClusterOverride: no matching rules provided")
+	}
+	if o.Override != nil && o.Suppress {
+		return fmt.Errorf("ClusterOverride: expected exactly one of [override, suppress], but got both")
+	}
+	if o.Override == nil && !o.Suppress {
+		return fmt.Errorf("ClusterOverride: expected exactly one of [override, suppress], but got neither")
+	}
 	return nil
 }
 
@@ -181,21 +194,28 @@ func (c *ClusterConfig) GetBaseConfig() *envoy_api_v2.Cluster {
 	return cluster
 }
 
-// GetOverride returns the override configuration for the provided service.
-func (c *ClusterConfig) GetOverride(cluster *envoy_api_v2.Cluster, svc *v1.Service, port v1.ServicePort) *envoy_api_v2.Cluster {
-	base := &envoy_api_v2.Cluster{}
+// ApplyOverride returns the cluster after applying any configured overrides.  It will return nil if
+// the cluster is suppressed.
+func (c *ClusterConfig) ApplyOverride(cluster *envoy_api_v2.Cluster, svc *v1.Service, port v1.ServicePort) *envoy_api_v2.Cluster {
 	for _, o := range c.Overrides {
-		if o.Override == nil {
-			continue
-		}
+		var match bool
 		for _, m := range o.Match {
-			if m.ClusterName == cluster.GetName() {
-				proto.Merge(base, o.Override)
+			match = match || m.ClusterName == cluster.GetName()
+			if match {
 				break
 			}
 		}
+		if match {
+			if o.Override != nil {
+				proto.Merge(cluster, o.Override)
+				continue
+			}
+			if o.Suppress {
+				return nil
+			}
+		}
 	}
-	return base
+	return cluster
 }
 
 func singleTargetLoadAssignment(cluster, hostname string, port int32, proto envoy_api_v2_core.SocketAddress_Protocol) *envoy_api_v2.ClusterLoadAssignment {
@@ -280,7 +300,10 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 			// Ignore clusters that we can't name, probably because they use an unsupported protcol.
 			continue
 		}
-		proto.Merge(cl, c.GetOverride(cl, svc, port))
+		cl = c.ApplyOverride(cl, svc, port)
+		if cl == nil {
+			continue
+		}
 		if !c.isEDS(cl) {
 			if cl.ClusterDiscoveryType == nil {
 				cl.ClusterDiscoveryType = &envoy_api_v2.Cluster_Type{
