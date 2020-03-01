@@ -1,0 +1,6 @@
+bases:
+    - ../../base
+resources:
+    - podmonitor.yaml
+commonLabels:
+    app: ekglue

@@ -7,4 +7,3 @@ resources:
     - service.yaml
     - clusterrole.yaml
     - clusterrolebinding.yaml
-    - podmonitor.yaml
