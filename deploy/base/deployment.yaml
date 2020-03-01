@@ -47,3 +47,7 @@ spec:
                         containerPort: 9000
                       - name: debug
                         containerPort: 8081
+                  resources:
+                      requests:
+                          cpu: 10m
+                          memory: 100Mi
