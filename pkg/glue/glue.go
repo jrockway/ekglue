@@ -318,29 +318,30 @@ func (l *LocalityConfig) LocalityFromHost(hosts cache.Store, hostname string) *e
 	if l == nil || l.RegionFrom == nil && l.ZoneFrom == nil && l.SubZoneFrom == nil {
 		return nil
 	}
-
 	result := new(envoy_api_v2_core.Locality)
 	var node *v1.Node
 	if hosts != nil {
 		obj, exists, err := hosts.GetByKey(hostname)
 		if err != nil {
 			zap.L().Error("problem looking up node by hostname", zap.String("hostname", hostname), zap.Error(err))
+		} else if !exists {
+			zap.L().Info("no match for hostname in node cache; cannot emit locality information", zap.String("hostname", hostname))
 		}
-		if host, ok := obj.(*v1.Node); ok && exists {
+		if host, ok := obj.(*v1.Node); ok && exists && host != nil {
 			node = host
 		}
 	}
-	if l != nil {
-		if l.RegionFrom != nil {
-			result.Region = extractLabel(node, hostname, l.RegionFrom)
-		}
-		if l.ZoneFrom != nil {
-			result.Zone = extractLabel(node, hostname, l.ZoneFrom)
-		}
-		if l.SubZoneFrom != nil {
-			result.SubZone = extractLabel(node, hostname, l.SubZoneFrom)
-		}
+
+	if l.RegionFrom != nil {
+		result.Region = extractLabel(node, hostname, l.RegionFrom)
 	}
+	if l.ZoneFrom != nil {
+		result.Zone = extractLabel(node, hostname, l.ZoneFrom)
+	}
+	if l.SubZoneFrom != nil {
+		result.SubZone = extractLabel(node, hostname, l.SubZoneFrom)
+	}
+
 	return result
 }
 
