@@ -33,9 +33,9 @@ I have not tested this with `ExternalService` type services. It "should" work. D
 external the external service is, you might want to skip EDS and declare the cluster a `LOGICAL_DNS`
 type. If the external service uses TLS, you may want to configure Envoy with a literal SNI to
 present to the upstream server; otherwise it might serve you the wrong certificate or otherwise act
-confused (my experience with AWS is that they will do the right things, but log a ton of errors
-while doing that, which may distract you from real issues). You will also need to configure how
-Envoy verifies the upstream's certificate; by default, it will trust anything!
+confused (my experience with proxying to AWS services is that they will do the right things, but log
+a ton of errors while doing that, which may distract you from real issues). You will also need to
+configure how Envoy verifies the upstream's certificate; by default, it will trust anything!
 
 Things are going to work very strangely if you use different `port` and `targetPort` numbers in your
 service definition. It will never work for headless services, and will not work in EDS mode.
@@ -51,5 +51,3 @@ It is possible, with the right set of overrides on `default:kubernetes:443`, to 
 to your Kubernetes API server authenticated automatically with the service account that runs Envoy.
 You'd have to do a lot of work to make it happen, but all the tools are available. Don't bridge that
 to the Internet or you will be mining a lot of cryptocoins in short order.
-
-Right now, all UDP ports are filtered out of EDS. See #3.
