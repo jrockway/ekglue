@@ -19,6 +19,22 @@ import (
 // ClusterWatcher watches services and endpoints inside of a cluster.
 type ClusterWatcher struct {
 	coreV1Client rest.Interface
+
+	// For tests, a ListerWatcher that will be used instead of the client-based ListerWatcher.
+	testLW cache.ListerWatcher
+}
+
+// New returns a ClusterWatcher from a kubernetes config.
+func New(config *rest.Config) (*ClusterWatcher, error) {
+	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		return client.WrapRoundTripper(rt)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("kubernetes: new client: %w", err)
+	}
+	return &ClusterWatcher{coreV1Client: clientset.CoreV1().RESTClient()}, nil
 }
 
 // ConnectOutOfCluster connects to the API server from outside of the cluster.
@@ -27,15 +43,7 @@ func ConnectOutOfCluster(kubeconfig string, master string) (*ClusterWatcher, err
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: build config: %w", err)
 	}
-	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		return client.WrapRoundTripper(rt)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("kubernetes: new client: %w", err)
-	}
-	return &ClusterWatcher{coreV1Client: clientset.CoreV1().RESTClient()}, nil
+	return New(config)
 }
 
 // ConnectInCluster connects to the API server from a pod inside the cluster.
@@ -44,19 +52,21 @@ func ConnectInCluster() (*ClusterWatcher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: get in-cluster config: %w", err)
 	}
-	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		return client.WrapRoundTripper(rt)
+	return New(config)
+}
+
+// NewListWatch returns a ListerWatcher that watches the configured k8s API object with the built-in
+// client.
+func (cw *ClusterWatcher) NewListWatch(resource string, namespace string, fieldSelector fields.Selector) cache.ListerWatcher {
+	if cw.testLW != nil {
+		return cw.testLW
 	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("kubernetes: new client: %w", err)
-	}
-	return &ClusterWatcher{coreV1Client: clientset.CoreV1().RESTClient()}, nil
+	return cache.NewListWatchFromClient(cw.coreV1Client, resource, namespace, fieldSelector)
 }
 
 // WatchServices notifes the provided ServiceReceiver of changes to services, in all namespaces.
 func (cw *ClusterWatcher) WatchServices(ctx context.Context, s cache.Store) error {
-	lw := cache.NewListWatchFromClient(cw.coreV1Client, "services", "", fields.Everything())
+	lw := cw.NewListWatch("services", "", fields.Everything())
 	r := cache.NewReflector(lw, &v1.Service{}, s, 0)
 	r.Run(ctx.Done())
 	return nil
@@ -64,7 +74,7 @@ func (cw *ClusterWatcher) WatchServices(ctx context.Context, s cache.Store) erro
 
 // ListServices sends all services to the provided cache.Store.
 func (cw *ClusterWatcher) ListServices(s cache.Store) error {
-	lw := cache.NewListWatchFromClient(cw.coreV1Client, "services", "", fields.Everything())
+	lw := cw.NewListWatch("services", "", fields.Everything())
 	raw, err := lw.List(metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("list: %v", err)
@@ -80,7 +90,7 @@ func (cw *ClusterWatcher) ListServices(s cache.Store) error {
 
 // WatchEndpoints notifes the provided EndpointReceiver of changes to endpoints, in all namespaces.
 func (cw *ClusterWatcher) WatchEndpoints(ctx context.Context, s cache.Store) error {
-	lw := cache.NewListWatchFromClient(cw.coreV1Client, "endpoints", "", fields.Everything())
+	lw := cw.NewListWatch("endpoints", "", fields.Everything())
 	r := cache.NewReflector(lw, &v1.Endpoints{}, s, 0)
 	r.Run(ctx.Done())
 	return nil
@@ -88,7 +98,7 @@ func (cw *ClusterWatcher) WatchEndpoints(ctx context.Context, s cache.Store) err
 
 // ListEndpoints sends all endpoints to the provided cache.Store.
 func (cw *ClusterWatcher) ListEndpoints(s cache.Store) error {
-	lw := cache.NewListWatchFromClient(cw.coreV1Client, "endpoints", "", fields.Everything())
+	lw := cw.NewListWatch("endpoints", "", fields.Everything())
 	raw, err := lw.List(metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("list: %v", err)
@@ -104,7 +114,7 @@ func (cw *ClusterWatcher) ListEndpoints(s cache.Store) error {
 
 // WatchNodes notifes the provided cache.Store of changes to nodes.
 func (cw *ClusterWatcher) WatchNodes(ctx context.Context, s cache.Store) error {
-	lw := cache.NewListWatchFromClient(cw.coreV1Client, "nodes", "", fields.Everything())
+	lw := cw.NewListWatch("nodes", "", fields.Everything())
 	r := cache.NewReflector(lw, &v1.Node{}, s, time.Minute)
 	r.Run(ctx.Done())
 	return nil
@@ -112,7 +122,7 @@ func (cw *ClusterWatcher) WatchNodes(ctx context.Context, s cache.Store) error {
 
 // ListNodes sends all nodes to the provided cache.Store.
 func (cw *ClusterWatcher) ListNodes(s cache.Store) error {
-	lw := cache.NewListWatchFromClient(cw.coreV1Client, "nodes", "", fields.Everything())
+	lw := cw.NewListWatch("nodes", "", fields.Everything())
 	raw, err := lw.List(metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("list: %v", err)
