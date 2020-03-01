@@ -1,3 +1,9 @@
+resource_types:
+    - name: file-url
+      type: registry-image
+      source:
+          repository: pivotalservices/concourse-curl-resource
+          tag: latest
 resources:
     - name: source
       type: git
@@ -35,6 +41,11 @@ resources:
           repository: registry.jrock.us/ekglue
           username: ((registry.username))
           password: ((registry.password))
+    - name: codecov
+      type: file-url
+      source:
+          url: https://codecov.io/bash
+          filename: codecov.sh
 
 jobs:
     - name: tests
@@ -46,6 +57,8 @@ jobs:
             trigger: true
           - get: source
             trigger: true
+          - get: codecov
+            trigger: false
           - task: test
             image: golang-latest
             config:
@@ -55,7 +68,10 @@ jobs:
                       path: ekglue
                     - name: envoy-latest
                       path: envoy
+                    - name: codecov
+                      path: codecov
                 params:
+                    CODECOV_TOKEN: ((ekglue.codecov))
                     ENVOY_PATH: "envoy/rootfs/usr/local/bin/envoy"
                 run:
                     path: /bin/sh
@@ -64,7 +80,8 @@ jobs:
                         - |
                             export ENVOY_PATH=$PWD/$ENVOY_PATH
                             cd ekglue
-                            go test -v -race ./...
+                            go test ./... -v -race -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/jrockway/ekglue/pkg/...
+                            bash ../codecov/codecov.sh
     - name: container
       public: true
       plan:
