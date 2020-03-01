@@ -1,5 +1,7 @@
 # ekglue - Envoy/Kubernetes glue
 
+[![codecov](https://codecov.io/gh/jrockway/ekglue/branch/master/graph/badge.svg)](https://codecov.io/gh/jrockway/ekglue)
+
 <p align="center">
 	<img src="img/logo.png" width="60%" align="center">
 </p>
