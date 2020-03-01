@@ -14,6 +14,7 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/google/go-cmp/cmp"
+	"github.com/jrockway/ekglue/pkg/cds"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
@@ -681,4 +682,187 @@ func TestLocalitiesAsYAML(t *testing.T) {
 	if got, want := len(nl.Localities), 1; got != want {
 		t.Errorf("host count:\n  got: %v\n want: %v", got, want)
 	}
+}
+
+func TestAllCacheMethods(t *testing.T) {
+	xds := cds.NewServer("test")
+	cfg := DefaultConfig()
+	cs := cfg.ClusterConfig.Store(xds)
+	ca, cb := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "test",
+			Name:      "a",
+		},
+		Spec: v1.ServiceSpec{
+			ClusterIP: "None",
+			Ports: []v1.ServicePort{
+				{
+					Name: "a",
+					Port: 1234,
+				},
+			},
+		},
+	}, &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "test",
+			Name:      "b",
+		},
+		Spec: v1.ServiceSpec{
+			ClusterIP: "None",
+			Ports: []v1.ServicePort{
+				{
+					Name: "b",
+					Port: 4321,
+				},
+			},
+		},
+	}
+	assertClusters := func(want ...string) {
+		t.Helper()
+		sort.Strings(want)
+		var got []string
+		for _, c := range cs.List() {
+			got = append(got, c.(interface{ GetName() string }).GetName())
+		}
+		sort.Strings(got)
+		if diff := cmp.Diff(got, want); diff != "" {
+			t.Errorf("assertClusters:\n  got: %v\n want: %v\n diff: %v", got, want, diff)
+		}
+	}
+	if err := cs.Add(nil); err == nil {
+		t.Fatal("nil add should fail")
+	}
+	assertClusters()
+	if err := cs.Add(&v1.Endpoints{}); err == nil {
+		t.Fatal("non-service add should fail")
+	}
+	assertClusters()
+	if err := cs.Add(ca); err != nil {
+		t.Fatal(err)
+	}
+	assertClusters("test:a:a")
+	if err := cs.Replace([]interface{}{ca, cb}, "12345"); err != nil {
+		t.Fatal(err)
+	}
+	assertClusters("test:a:a", "test:b:b")
+	cb2 := &(*cb)
+	cb2.Spec.Ports[0].Port = 1234
+	if err := cs.Update(cb2); err != nil {
+		t.Fatal(err)
+	}
+	assertClusters("test:a:a", "test:b:b")
+	if err := cs.Delete(cb); err != nil {
+		t.Fatal(err)
+	}
+	assertClusters("test:a:a")
+	if err := cs.Delete(ca); err != nil {
+		t.Fatal(err)
+	}
+	assertClusters()
+
+	es := cfg.EndpointConfig.Store(nil, xds)
+	ea, eb := &v1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "test",
+			Name:      "a",
+		},
+		Subsets: []v1.EndpointSubset{
+			{
+				Addresses: []v1.EndpointAddress{
+					{
+						IP: "1.2.3.4",
+					},
+				},
+				Ports: []v1.EndpointPort{
+					{
+						Name: "a",
+					},
+				},
+			},
+		},
+	}, &v1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "test",
+			Name:      "b",
+		},
+		Subsets: []v1.EndpointSubset{
+			{
+				Addresses: []v1.EndpointAddress{
+					{
+						IP: "1.2.3.4",
+					},
+				},
+				Ports: []v1.EndpointPort{
+					{
+						Name: "b",
+					},
+				},
+			},
+		},
+	}
+	assertEndpoints := func(want ...string) {
+		t.Helper()
+		sort.Strings(want)
+		var got []string
+		for _, e := range xds.Endpoints.ListKeys() {
+			got = append(got, e)
+		}
+		sort.Strings(got)
+		if diff := cmp.Diff(got, want); diff != "" {
+			t.Errorf("assertEndpoints:\n  got: %v\n want: %v\n diff: %v", got, want, diff)
+		}
+	}
+	if err := es.Add(nil); err == nil {
+		t.Fatal("nil add should error")
+	}
+	assertEndpoints()
+	if err := es.Add(&v1.Service{}); err == nil {
+		t.Fatal("non-endpoints add should error")
+	}
+	assertEndpoints()
+	if err := es.Add(ea); err != nil {
+		t.Fatal(err)
+	}
+	assertEndpoints("test:a:a")
+	if err := es.Replace([]interface{}{ea, eb}, "837873"); err != nil {
+		t.Fatal(err)
+	}
+	assertEndpoints("test:a:a", "test:b:b")
+	eb2 := &v1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "test",
+			Name:      "b",
+		},
+		Subsets: []v1.EndpointSubset{
+			{
+				Addresses: []v1.EndpointAddress{
+					{
+						IP: "1.2.3.4",
+					},
+				},
+				Ports: []v1.EndpointPort{
+					{
+						Name: "c",
+					},
+				},
+			},
+		},
+	}
+	if err := es.Update(eb2); err != nil {
+		t.Fatal(err)
+	}
+	// This is bug #7 in action.
+	assertEndpoints("test:a:a", "test:b:b", "test:b:c")
+	if err := es.Delete(eb); err != nil {
+		t.Fatal(err)
+	}
+	assertEndpoints("test:a:a", "test:b:c")
+	if err := es.Delete(eb2); err != nil {
+		t.Fatal(err)
+	}
+	assertEndpoints("test:a:a")
+	if err := es.Delete(ea); err != nil {
+		t.Fatal(err)
+	}
+	assertEndpoints()
 }
