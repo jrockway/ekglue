@@ -27,7 +27,7 @@ type flags struct {
 }
 
 func main() {
-	server.AppName = "ekglue-cds"
+	server.AppName = "ekglue"
 
 	f := new(flags)
 	server.AddFlagGroup("ekglue", f)
