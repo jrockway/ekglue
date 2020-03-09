@@ -552,12 +552,12 @@ func TestLocality(t *testing.T) {
 		{
 			localityConfig: nil,
 			input:          "host0",
-			want:           nil,
+			want:           &envoy_api_v2_core.Locality{},
 		},
 		{
 			localityConfig: &LocalityConfig{},
 			input:          "host0",
-			want:           nil,
+			want:           &envoy_api_v2_core.Locality{},
 		},
 		{
 			localityConfig: &LocalityConfig{

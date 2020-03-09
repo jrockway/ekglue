@@ -359,13 +359,14 @@ func extractLabel(node *v1.Node, hostname string, rule *Field) string {
 	return labels[rule.Label]
 }
 
-// LocalityFromHost returns a locality record for the provided host.  nil is returned if there is no
-// possible way to generate a locality.
+// LocalityFromHost returns a locality record for the provided host, looking in the cache.Store for
+// a v1.Node object that matches the hostname.  It returns an empty, non-nil, Locality if there is
+// no way to determine the actual locality.
 func (l *LocalityConfig) LocalityFromHost(hosts cache.Store, hostname string) *envoy_api_v2_core.Locality {
-	if l == nil || l.RegionFrom == nil && l.ZoneFrom == nil && l.SubZoneFrom == nil {
-		return nil
-	}
 	result := new(envoy_api_v2_core.Locality)
+	if l == nil || l.RegionFrom == nil && l.ZoneFrom == nil && l.SubZoneFrom == nil {
+		return result
+	}
 	var node *v1.Node
 	if hosts != nil {
 		obj, exists, err := hosts.GetByKey(hostname)
@@ -402,8 +403,11 @@ func (l *LocalityConfig) LocalitiesAsYAML(nodes cache.Store) ([]byte, error) {
 	localities := &nodeLocalities{Localities: make(map[string]json.RawMessage)}
 	jsonm := &jsonpb.Marshaler{EmitDefaults: false, OrigName: true}
 	for _, obj := range nodes.List() {
-		node := obj.(*v1.Node)
-		locality := l.LocalityFromHost(nodes, node.GetName())
+		node, ok := obj.(*v1.Node)
+		locality := &envoy_api_v2_core.Locality{}
+		if ok {
+			locality = l.LocalityFromHost(nodes, node.GetName())
+		}
 		locJSON, err := jsonm.MarshalToString(locality)
 		if err != nil {
 			return nil, fmt.Errorf("marshal json for node %s: %v", node.GetName(), err)
