@@ -19,7 +19,7 @@ import (
 )
 
 func TestManager(t *testing.T) {
-	m := NewManager("test", "test-", &envoy_api_v2.Cluster{})
+	m := NewManager("test", "test-", &envoy_api_v2.Cluster{}, nil)
 	if got, want := m.Type, "type.googleapis.com/envoy.api.v2.Cluster"; got != want {
 		t.Errorf("computed type:\n  got: %v\n want: %v", got, want)
 	}
@@ -173,7 +173,7 @@ func TestManager(t *testing.T) {
 }
 
 func TestNamedSubscriptions(t *testing.T) {
-	m := NewManager("named-subscriptions", "named-subscriptions-", &envoy_api_v2.ClusterLoadAssignment{})
+	m := NewManager("named-subscriptions", "named-subscriptions-", &envoy_api_v2.ClusterLoadAssignment{}, nil)
 	reqCh, resCh, errCh := make(chan *envoy_api_v2.DiscoveryRequest), make(chan *envoy_api_v2.DiscoveryResponse), make(chan error)
 
 	l := zaptest.NewLogger(t, zaptest.Level(zap.DebugLevel))
@@ -234,7 +234,7 @@ func TestNamedSubscriptions(t *testing.T) {
 }
 
 func TestConfigAsYAML(t *testing.T) {
-	s := NewManager("test", "", &envoy_api_v2.Cluster{})
+	s := NewManager("test", "", &envoy_api_v2.Cluster{}, nil)
 	err := s.Add(context.Background(), []Resource{&envoy_api_v2.Cluster{Name: "foo"}})
 	if err != nil {
 		t.Fatal(err)

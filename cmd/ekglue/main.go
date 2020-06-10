@@ -33,9 +33,13 @@ func main() {
 	server.AddFlagGroup("ekglue", f)
 	kf := new(kflags)
 	server.AddFlagGroup("Kubernetes", kf)
+
+	drainCh := make(chan struct{})
+	server.AddDrainHandler(func() { close(drainCh) })
+
 	server.Setup()
 
-	svc := cds.NewServer(f.VersionPrefix)
+	svc := cds.NewServer(f.VersionPrefix, drainCh)
 	server.AddService(func(s *grpc.Server) {
 		envoy_api_v2.RegisterClusterDiscoveryServiceServer(s, svc)
 		envoy_api_v2.RegisterEndpointDiscoveryServiceServer(s, svc)

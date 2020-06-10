@@ -46,7 +46,7 @@ func clustersFromResponse(res *envoy_api_v2.DiscoveryResponse) ([]string, error)
 }
 
 func TestCDSFlow(t *testing.T) {
-	s := NewServer("test")
+	s := NewServer("test", nil)
 	ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
 	defer c()
 

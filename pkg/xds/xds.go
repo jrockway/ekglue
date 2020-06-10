@@ -19,7 +19,6 @@ import (
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/google/go-cmp/cmp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/jrockway/opinionated-server/server"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"github.com/prometheus/client_golang/prometheus"
@@ -106,6 +105,8 @@ type Manager struct {
 	// Logger is a zap logger to use to log manager events.  Per-connection events are logged
 	// via the logger stored in the request context.
 	Logger *zap.Logger
+	// Draining is a channel that, when closed, will drain client connections.
+	Draining chan struct{}
 
 	version   int
 	resources map[string]Resource
@@ -113,12 +114,13 @@ type Manager struct {
 }
 
 // NewManager creates a new manager.  resource is an instance of the type to manage.
-func NewManager(name, versionPrefix string, resource Resource) *Manager {
+func NewManager(name, versionPrefix string, resource Resource, drainCh chan struct{}) *Manager {
 	m := &Manager{
 		Name:          name,
 		VersionPrefix: versionPrefix,
 		Type:          "type.googleapis.com/" + proto.MessageName(resource),
 		Logger:        zap.L().Named(name),
+		Draining:      drainCh,
 		resources:     make(map[string]Resource),
 		sessions:      make(map[session]struct{}),
 	}
@@ -485,7 +487,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 
 	for {
 		select {
-		case <-server.Draining():
+		case <-m.Draining:
 			return errors.New("server draining")
 		case <-ctx.Done():
 			return ctx.Err()

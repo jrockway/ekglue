@@ -41,7 +41,7 @@ func main() {
 		klog.Infof("using default config")
 	}
 
-	server := cds.NewServer("ekglue-dump-config")
+	server := cds.NewServer("ekglue-dump-config", nil)
 
 	nodes := cache.NewStore(cache.MetaNamespaceKeyFunc)
 	if err := w.ListNodes(nodes); err != nil {

@@ -47,7 +47,7 @@ func main() {
 	server.AddFlagGroup("ekglue", f)
 	server.Setup()
 
-	svc := cds.NewServer("")
+	svc := cds.NewServer("", nil)
 	server.AddService(func(s *grpc.Server) {
 		envoy_api_v2.RegisterClusterDiscoveryServiceServer(s, svc)
 		envoy_api_v2.RegisterEndpointDiscoveryServiceServer(s, svc)

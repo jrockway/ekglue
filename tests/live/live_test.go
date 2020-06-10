@@ -335,7 +335,7 @@ func TestXDS(t *testing.T) {
 				t.Fatalf("listen: %v", err)
 			}
 			gs := grpc.NewServer(grpc.StreamInterceptor(loggingStreamServerInterceptor(logger.Named("grpc"))))
-			server := cds.NewServer("test-")
+			server := cds.NewServer("test-", nil)
 			envoy_api_v2.RegisterClusterDiscoveryServiceServer(gs, server)
 			envoy_api_v2.RegisterEndpointDiscoveryServiceServer(gs, server)
 

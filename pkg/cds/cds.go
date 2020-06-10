@@ -33,10 +33,10 @@ type Server struct {
 }
 
 // NewServer returns a new server that is ready to serve.
-func NewServer(versionPrefix string) *Server {
+func NewServer(versionPrefix string, drainCh chan struct{}) *Server {
 	return &Server{
-		Clusters:  xds.NewManager("clusters", versionPrefix, &envoy_api_v2.Cluster{}),
-		Endpoints: xds.NewManager("endpoints", versionPrefix, &envoy_api_v2.ClusterLoadAssignment{}),
+		Clusters:  xds.NewManager("clusters", versionPrefix, &envoy_api_v2.Cluster{}, drainCh),
+		Endpoints: xds.NewManager("endpoints", versionPrefix, &envoy_api_v2.ClusterLoadAssignment{}, drainCh),
 	}
 }
 

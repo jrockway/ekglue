@@ -711,7 +711,7 @@ func TestLocalitiesAsYAML(t *testing.T) {
 }
 
 func TestAllCacheMethods(t *testing.T) {
-	xds := cds.NewServer("test")
+	xds := cds.NewServer("test", nil)
 	cfg := DefaultConfig()
 	cs := cfg.ClusterConfig.Store(xds)
 	ca, cb := &v1.Service{
