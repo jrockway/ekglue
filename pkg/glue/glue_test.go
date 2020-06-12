@@ -15,6 +15,7 @@ import (
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/google/go-cmp/cmp"
 	"github.com/jrockway/ekglue/pkg/cds"
+	"google.golang.org/protobuf/testing/protocmp"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
@@ -255,7 +256,7 @@ func TestClustersFromService(t *testing.T) {
 			got := cfg.ClusterConfig.ClustersFromService(test.service)
 			sort.Slice(got, func(i, j int) bool { return got[i].Name < got[j].Name })
 			sort.Slice(test.want, func(i, j int) bool { return test.want[i].Name < test.want[j].Name })
-			if diff := cmp.Diff(got, test.want); diff != "" {
+			if diff := cmp.Diff(got, test.want, protocmp.Transform()); diff != "" {
 				t.Errorf("clusters:\n  got: %v\n want: %v\n diff: %v", got, test.want, diff)
 			}
 		})
@@ -325,7 +326,7 @@ func TestLoadConfig(t *testing.T) {
 				t.Fatal("expected error, but got success")
 			}
 			want := test.want
-			if diff := cmp.Diff(got, want); diff != "" {
+			if diff := cmp.Diff(got, want, protocmp.Transform()); diff != "" {
 				t.Errorf("loaded yaml:\n  got: %#v\n want: %#v\n diff: %v", got, want, diff)
 			}
 		})
