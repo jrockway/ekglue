@@ -81,7 +81,9 @@ jobs:
                             export ENVOY_PATH=$PWD/$ENVOY_PATH
                             cd ekglue
                             go test ./... -v -race -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/jrockway/ekglue/pkg/...
+                            out=$?
                             bash ../codecov/codecov.sh
+                            return $out
     - name: container
       public: true
       plan:
