@@ -534,7 +534,9 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 			if nonce == "" {
 				l.Info("sending initial config")
 			} else {
-				l.Warn("envoy sent acknowledgement of unrecognized nonce; resending config", zap.String("nonce", nonce))
+				// This is not that alarming.  It will happen when ekglue restarts
+				// and Envoy connects to a new replica.
+				l.Info("envoy sent acknowledgement of unrecognized nonce; resending config", zap.String("nonce", nonce))
 			}
 			sendUpdate(ctx)
 		case u := <-rCh:
