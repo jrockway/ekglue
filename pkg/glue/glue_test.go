@@ -537,7 +537,7 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 	for _, test := range testData {
 		t.Run(test.name, func(t *testing.T) {
 			got := cfg.EndpointConfig.LoadAssignmentsFromEndpoints(nodes, test.endpoints)
-			if diff := cmp.Diff(got, test.want); diff != "" {
+			if diff := cmp.Diff(got, test.want, protocmp.Transform()); diff != "" {
 				t.Errorf("endpoints:\n  got: %v\n want: %v\n diff: %v", got, test.want, diff)
 			}
 		})
