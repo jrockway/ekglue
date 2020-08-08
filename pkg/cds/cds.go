@@ -5,6 +5,8 @@ import (
 	"context"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
+	endpointservice "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
 	"github.com/jrockway/ekglue/pkg/xds"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -26,8 +28,8 @@ var (
 type Server struct {
 	// We do not implement the GRPC_DELTA or REST protocols.  We include this to pick up stubs
 	// for those methods, and any future protocols that are added.
-	envoy_api_v2.UnimplementedClusterDiscoveryServiceServer
-	envoy_api_v2.UnimplementedEndpointDiscoveryServiceServer
+	clusterservice.UnimplementedClusterDiscoveryServiceServer
+	endpointservice.UnimplementedEndpointDiscoveryServiceServer
 
 	Clusters, Endpoints *xds.Manager
 }
@@ -116,14 +118,14 @@ func (s *Server) ReplaceEndpoints(ctx context.Context, es []*envoy_api_v2.Cluste
 }
 
 // StreamClusters implements CDS.
-func (s *Server) StreamClusters(stream envoy_api_v2.ClusterDiscoveryService_StreamClustersServer) error {
+func (s *Server) StreamClusters(stream clusterservice.ClusterDiscoveryService_StreamClustersServer) error {
 	cdsClientsStreaming.Inc()
 	defer cdsClientsStreaming.Dec()
 	return s.Clusters.StreamGRPC(stream)
 }
 
 // StreamEndpoints implements EDS.
-func (s *Server) StreamEndpoints(stream envoy_api_v2.EndpointDiscoveryService_StreamEndpointsServer) error {
+func (s *Server) StreamEndpoints(stream endpointservice.EndpointDiscoveryService_StreamEndpointsServer) error {
 	edsClientsStreaming.Inc()
 	defer edsClientsStreaming.Dec()
 	return s.Endpoints.StreamGRPC(stream)

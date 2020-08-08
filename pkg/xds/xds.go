@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
@@ -359,7 +359,7 @@ func randomString() string {
 	return string(hash[0:8])
 }
 
-func (m *Manager) BuildDiscoveryResponse(subscribed []string) (*envoy_api_v2.DiscoveryResponse, []string, error) {
+func (m *Manager) BuildDiscoveryResponse(subscribed []string) (*discovery_v3.DiscoveryResponse, []string, error) {
 	m.Lock()
 	defer m.Unlock()
 	resources, names, version, err := m.snapshot(subscribed)
@@ -367,7 +367,7 @@ func (m *Manager) BuildDiscoveryResponse(subscribed []string) (*envoy_api_v2.Dis
 		return nil, nil, fmt.Errorf("snapshot resources: %w", err)
 	}
 	hash := randomString()
-	res := &envoy_api_v2.DiscoveryResponse{
+	res := &discovery_v3.DiscoveryResponse{
 		VersionInfo: version,
 		TypeUrl:     m.Type,
 		Resources:   resources,
@@ -381,7 +381,7 @@ func (m *Manager) BuildDiscoveryResponse(subscribed []string) (*envoy_api_v2.Dis
 
 // Stream manages a client connection.  Requests from the client are read from reqCh, responses are
 // written to resCh, and the function returns when no further progress can be made.
-func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.DiscoveryRequest, resCh chan *envoy_api_v2.DiscoveryResponse) error {
+func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.DiscoveryRequest, resCh chan *discovery_v3.DiscoveryResponse) error {
 	l := ctxzap.Extract(ctx).With(zap.String("xds_type", m.Type))
 
 	// Channel for receiving resource updates.
@@ -449,7 +449,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 	}
 
 	// handleTx handles an acknowledgement
-	handleTx := func(t *tx, req *envoy_api_v2.DiscoveryRequest) {
+	handleTx := func(t *tx, req *discovery_v3.DiscoveryRequest) {
 		t.span.LogEvent("got response")
 		var ack bool
 		origVersion, version := t.version, req.GetVersionInfo()
@@ -558,8 +558,8 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *envoy_api_v2.Discovery
 // streams.
 type XDSStream interface {
 	Context() context.Context
-	Recv() (*envoy_api_v2.DiscoveryRequest, error)
-	Send(*envoy_api_v2.DiscoveryResponse) error
+	Recv() (*discovery_v3.DiscoveryRequest, error)
+	Send(*discovery_v3.DiscoveryResponse) error
 }
 
 // StreamGRPC adapts a gRPC stream of DiscoveryRequest -> DiscoveryResponse to the API required by
@@ -568,8 +568,8 @@ func (m *Manager) StreamGRPC(stream XDSStream) error {
 
 	ctx := stream.Context()
 	l := ctxzap.Extract(ctx)
-	reqCh := make(chan *envoy_api_v2.DiscoveryRequest)
-	resCh := make(chan *envoy_api_v2.DiscoveryResponse)
+	reqCh := make(chan *discovery_v3.DiscoveryRequest)
+	resCh := make(chan *discovery_v3.DiscoveryResponse)
 	errCh := make(chan error)
 
 	go func() {

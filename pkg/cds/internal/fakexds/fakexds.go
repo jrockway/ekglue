@@ -4,21 +4,21 @@ import (
 	"context"
 	"fmt"
 
-	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"google.golang.org/grpc/metadata"
 )
 
 type Stream struct {
 	ctx   context.Context
-	reqCh chan *envoy_api_v2.DiscoveryRequest
-	resCh chan *envoy_api_v2.DiscoveryResponse
+	reqCh chan *discovery_v3.DiscoveryRequest
+	resCh chan *discovery_v3.DiscoveryResponse
 }
 
 func NewStream(ctx context.Context) *Stream {
 	return &Stream{
 		ctx:   ctx,
-		reqCh: make(chan *envoy_api_v2.DiscoveryRequest),
-		resCh: make(chan *envoy_api_v2.DiscoveryResponse),
+		reqCh: make(chan *discovery_v3.DiscoveryRequest),
+		resCh: make(chan *discovery_v3.DiscoveryResponse),
 	}
 }
 
@@ -27,7 +27,7 @@ func (s *Stream) Context() context.Context {
 }
 
 // Send is called by the server to send a response to the client.
-func (s *Stream) Send(res *envoy_api_v2.DiscoveryResponse) error {
+func (s *Stream) Send(res *discovery_v3.DiscoveryResponse) error {
 	ctx := s.Context()
 	select {
 	case <-ctx.Done():
@@ -38,7 +38,7 @@ func (s *Stream) Send(res *envoy_api_v2.DiscoveryResponse) error {
 }
 
 // Recv is called by the server to receive a request from the client.
-func (s *Stream) Recv() (*envoy_api_v2.DiscoveryRequest, error) {
+func (s *Stream) Recv() (*discovery_v3.DiscoveryRequest, error) {
 	ctx := s.Context()
 	select {
 	case <-ctx.Done():
@@ -49,7 +49,7 @@ func (s *Stream) Recv() (*envoy_api_v2.DiscoveryRequest, error) {
 }
 
 // Request is called by the client to send a message to the server.
-func (s *Stream) Request(req *envoy_api_v2.DiscoveryRequest) error {
+func (s *Stream) Request(req *discovery_v3.DiscoveryRequest) error {
 	ctx := s.Context()
 	select {
 	case <-ctx.Done():
@@ -60,7 +60,7 @@ func (s *Stream) Request(req *envoy_api_v2.DiscoveryRequest) error {
 }
 
 // Await is called by the client to await a push from the server.
-func (s *Stream) Await() (*envoy_api_v2.DiscoveryResponse, error) {
+func (s *Stream) Await() (*discovery_v3.DiscoveryResponse, error) {
 	ctx := s.Context()
 	select {
 	case <-ctx.Done():
@@ -71,7 +71,7 @@ func (s *Stream) Await() (*envoy_api_v2.DiscoveryResponse, error) {
 }
 
 // RequestAndWait is called by the client to send a request to the server and wait for a response.
-func (s *Stream) RequestAndWait(req *envoy_api_v2.DiscoveryRequest) (*envoy_api_v2.DiscoveryResponse, error) {
+func (s *Stream) RequestAndWait(req *discovery_v3.DiscoveryRequest) (*discovery_v3.DiscoveryResponse, error) {
 	if err := s.Request(req); err != nil {
 		return nil, err
 	}

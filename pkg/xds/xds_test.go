@@ -7,7 +7,8 @@ import (
 	"time"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/go-test/deep"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -24,7 +25,7 @@ func TestManager(t *testing.T) {
 		t.Errorf("computed type:\n  got: %v\n want: %v", got, want)
 	}
 
-	reqCh, resCh, errCh, ackCh := make(chan *envoy_api_v2.DiscoveryRequest), make(chan *envoy_api_v2.DiscoveryResponse), make(chan error), make(chan bool)
+	reqCh, resCh, errCh, ackCh := make(chan *discovery_v3.DiscoveryRequest), make(chan *discovery_v3.DiscoveryResponse), make(chan error), make(chan bool)
 
 	l := zaptest.NewLogger(t, zaptest.Level(zap.DebugLevel))
 	m.Logger = l.Named("manager")
@@ -38,18 +39,18 @@ func TestManager(t *testing.T) {
 
 	ack := func(version, nonce string) {
 		t.Helper()
-		reqCh <- &envoy_api_v2.DiscoveryRequest{
+		reqCh <- &discovery_v3.DiscoveryRequest{
 			VersionInfo:   version,
-			Node:          &envoy_api_v2_core.Node{Id: "test"},
+			Node:          &envoy_config_core_v3.Node{Id: "test"},
 			TypeUrl:       m.Type,
 			ResponseNonce: nonce,
 		}
 	}
 	nack := func(version, nonce, error string) {
 		t.Helper()
-		reqCh <- &envoy_api_v2.DiscoveryRequest{
+		reqCh <- &discovery_v3.DiscoveryRequest{
 			VersionInfo:   version,
-			Node:          &envoy_api_v2_core.Node{Id: "test"},
+			Node:          &envoy_config_core_v3.Node{Id: "test"},
 			TypeUrl:       m.Type,
 			ResponseNonce: nonce,
 			ErrorDetail: &status.Status{
@@ -174,7 +175,7 @@ func TestManager(t *testing.T) {
 
 func TestNamedSubscriptions(t *testing.T) {
 	m := NewManager("named-subscriptions", "named-subscriptions-", &envoy_api_v2.ClusterLoadAssignment{}, nil)
-	reqCh, resCh, errCh := make(chan *envoy_api_v2.DiscoveryRequest), make(chan *envoy_api_v2.DiscoveryResponse), make(chan error)
+	reqCh, resCh, errCh := make(chan *discovery_v3.DiscoveryRequest), make(chan *discovery_v3.DiscoveryResponse), make(chan error)
 
 	l := zaptest.NewLogger(t, zaptest.Level(zap.DebugLevel))
 	m.Logger = l.Named("manager")
@@ -184,9 +185,9 @@ func TestNamedSubscriptions(t *testing.T) {
 	go func() { errCh <- m.Stream(ctx, reqCh, resCh) }()
 
 	select {
-	case reqCh <- &envoy_api_v2.DiscoveryRequest{
+	case reqCh <- &discovery_v3.DiscoveryRequest{
 		VersionInfo:   "",
-		Node:          &envoy_api_v2_core.Node{Id: "test2"},
+		Node:          &envoy_config_core_v3.Node{Id: "test2"},
 		TypeUrl:       m.Type,
 		ResourceNames: []string{"foo"},
 	}:
@@ -194,7 +195,7 @@ func TestNamedSubscriptions(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	var res *envoy_api_v2.DiscoveryResponse
+	var res *discovery_v3.DiscoveryResponse
 	select {
 	case res = <-resCh:
 	case <-ctx.Done():

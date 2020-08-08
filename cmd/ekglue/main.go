@@ -14,6 +14,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
+	endpointservice "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
 )
 
 type kflags struct {
@@ -41,8 +43,10 @@ func main() {
 
 	svc := cds.NewServer(f.VersionPrefix, drainCh)
 	server.AddService(func(s *grpc.Server) {
-		envoy_api_v2.RegisterClusterDiscoveryServiceServer(s, svc)
-		envoy_api_v2.RegisterEndpointDiscoveryServiceServer(s, svc)
+		clusterservice.RegisterClusterDiscoveryServiceServer(s, svc)
+		endpointservice.RegisterEndpointDiscoveryServiceServer(s, svc)
+		envoy_api_v2.RegisterClusterDiscoveryServiceServer(s, &envoy_api_v2.UnimplementedClusterDiscoveryServiceServer{})
+		envoy_api_v2.RegisterEndpointDiscoveryServiceServer(s, &envoy_api_v2.UnimplementedEndpointDiscoveryServiceServer{})
 	})
 	http.Handle("/clusters", svc.Clusters)
 	http.Handle("/endpoints", svc.Endpoints)

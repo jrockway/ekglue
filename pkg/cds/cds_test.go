@@ -9,7 +9,8 @@ import (
 	"time"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
@@ -20,19 +21,19 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/status"
 )
 
-func requestClusters(version string, nonce string, err *status.Status) *envoy_api_v2.DiscoveryRequest {
-	return &envoy_api_v2.DiscoveryRequest{
+func requestClusters(version string, nonce string, err *status.Status) *discovery_v3.DiscoveryRequest {
+	return &discovery_v3.DiscoveryRequest{
 		VersionInfo:   version,
 		ResponseNonce: nonce,
 		ErrorDetail:   err,
 		TypeUrl:       "type.googleapis.com/envoy.api.v2.Cluster",
-		Node: &core.Node{
+		Node: &envoy_config_core_v3.Node{
 			Id: "unit-tests",
 		},
 	}
 }
 
-func clustersFromResponse(res *envoy_api_v2.DiscoveryResponse) ([]string, error) {
+func clustersFromResponse(res *discovery_v3.DiscoveryResponse) ([]string, error) {
 	var result []string
 	for _, a := range res.GetResources() {
 		cluster := new(envoy_api_v2.Cluster)

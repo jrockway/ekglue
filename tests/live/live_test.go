@@ -14,6 +14,8 @@ import (
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
+	endpointservice "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jrockway/ekglue/pkg/cds"
@@ -71,7 +73,8 @@ var dynamicConfig = &glue.Config{
 				EdsConfig: &envoy_api_v2_core.ConfigSource{
 					ConfigSourceSpecifier: &envoy_api_v2_core.ConfigSource_ApiConfigSource{
 						ApiConfigSource: &envoy_api_v2_core.ApiConfigSource{
-							ApiType: envoy_api_v2_core.ApiConfigSource_GRPC,
+							ApiType:             envoy_api_v2_core.ApiConfigSource_GRPC,
+							TransportApiVersion: envoy_api_v2_core.ApiVersion_V3,
 							GrpcServices: []*envoy_api_v2_core.GrpcService{{
 								TargetSpecifier: &envoy_api_v2_core.GrpcService_EnvoyGrpc_{EnvoyGrpc: &envoy_api_v2_core.GrpcService_EnvoyGrpc{
 									ClusterName: "xds",
@@ -336,9 +339,10 @@ func TestXDS(t *testing.T) {
 			}
 			gs := grpc.NewServer(grpc.StreamInterceptor(loggingStreamServerInterceptor(logger.Named("grpc"))))
 			server := cds.NewServer("test-", nil)
-			envoy_api_v2.RegisterClusterDiscoveryServiceServer(gs, server)
-			envoy_api_v2.RegisterEndpointDiscoveryServiceServer(gs, server)
-
+			clusterservice.RegisterClusterDiscoveryServiceServer(gs, server)
+			endpointservice.RegisterEndpointDiscoveryServiceServer(gs, server)
+			envoy_api_v2.RegisterClusterDiscoveryServiceServer(gs, &envoy_api_v2.UnimplementedClusterDiscoveryServiceServer{})
+			envoy_api_v2.RegisterEndpointDiscoveryServiceServer(gs, &envoy_api_v2.UnimplementedEndpointDiscoveryServiceServer{})
 			go gs.Serve(gl)
 			defer func() {
 				gs.Stop()

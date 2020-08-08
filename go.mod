@@ -3,6 +3,7 @@ module github.com/jrockway/ekglue
 go 1.13
 
 require (
+	github.com/cncf/udpa/go v0.0.0-20200629203442-efcf912fb354 // indirect
 	github.com/envoyproxy/go-control-plane v0.9.6
 	github.com/go-test/deep v1.0.5
 	github.com/golang/protobuf v1.4.2
