@@ -21,7 +21,7 @@ resources:
       icon: docker
       source:
           repository: envoyproxy/envoy
-          tag: latest
+          tag: v1.15-latest
     - name: ekglue-version
       type: semver
       icon: counter
@@ -79,8 +79,9 @@ jobs:
                         - -c
                         - |
                             export ENVOY_PATH=$PWD/$ENVOY_PATH
+                            $ENVOY_PATH --version
                             cd ekglue
-                            go test ./... -v -race -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/jrockway/ekglue/pkg/...
+                            ENVOY_LOG_LEVEL=info go test ./... -v -race -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/jrockway/ekglue/pkg/...
                             out=$?
                             bash ../codecov/codecov.sh
                             return $out
