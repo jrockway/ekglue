@@ -91,11 +91,41 @@ var dynamicConfig = &glue.Config{
 	EndpointConfig: &glue.EndpointConfig{},
 }
 
+var dynamicV2config = &glue.Config{
+	ClusterConfig: &glue.ClusterConfig{
+		BaseConfig: &envoy_api_v2.Cluster{
+			ConnectTimeout: ptypes.DurationProto(time.Second),
+			ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
+				Type: envoy_api_v2.Cluster_EDS,
+			},
+			EdsClusterConfig: &envoy_api_v2.Cluster_EdsClusterConfig{
+				EdsConfig: &envoy_api_v2_core.ConfigSource{
+					ConfigSourceSpecifier: &envoy_api_v2_core.ConfigSource_ApiConfigSource{
+						ApiConfigSource: &envoy_api_v2_core.ApiConfigSource{
+							ApiType:             envoy_api_v2_core.ApiConfigSource_GRPC,
+							TransportApiVersion: envoy_api_v2_core.ApiVersion_V2,
+							GrpcServices: []*envoy_api_v2_core.GrpcService{{
+								TargetSpecifier: &envoy_api_v2_core.GrpcService_EnvoyGrpc_{EnvoyGrpc: &envoy_api_v2_core.GrpcService_EnvoyGrpc{
+									ClusterName: "xds",
+								}},
+							}},
+						},
+					},
+					InitialFetchTimeout: ptypes.DurationProto(time.Second),
+					ResourceApiVersion:  envoy_api_v2_core.ApiVersion_V2,
+				},
+			},
+		},
+	},
+	EndpointConfig: &glue.EndpointConfig{},
+}
+
 func TestXDS(t *testing.T) {
 	testData := []struct {
 		name, configFile string
 		config           *glue.Config
 		push             func(addr *net.TCPAddr, endpointStore cache.Store, clusterStore cache.Store)
+		wantFail         bool
 	}{
 		{
 			name:       "cds cluster with dns endpoint",
@@ -263,6 +293,54 @@ func TestXDS(t *testing.T) {
 				})
 
 			},
+		}, {
+			name:       "cds with v2 eds endpoints (should break)",
+			configFile: "envoy-cds.yaml",
+			config:     dynamicV2config,
+			wantFail:   true,
+			push: func(addr *net.TCPAddr, es, cs cache.Store) {
+				es.Add(&v1.Endpoints{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "test",
+						Name:      "web",
+					},
+					Subsets: []v1.EndpointSubset{{
+						Addresses: []v1.EndpointAddress{{
+							IP: "127.0.0.1",
+						}},
+						NotReadyAddresses: []v1.EndpointAddress{{
+							IP: "127.0.0.2",
+						}},
+						Ports: []v1.EndpointPort{{
+							Name:     "http",
+							Port:     int32(addr.Port),
+							Protocol: v1.ProtocolTCP,
+						}},
+					}},
+				})
+				cs.Add(&v1.Service{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "v1",
+						Kind:       "Service",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "test",
+						Name:      "web",
+					},
+					Spec: v1.ServiceSpec{
+						ClusterIP: "None",
+						Ports: []v1.ServicePort{{
+							Name: "http",
+							Port: int32(addr.Port),
+						}},
+					},
+				})
+
+			},
 		},
 	}
 	// find the Envoy binary.
@@ -369,17 +447,23 @@ func TestXDS(t *testing.T) {
 			nodes := cache.NewStore(cache.DeletionHandlingMetaNamespaceKeyFunc)
 			test.push(hl.Addr().(*net.TCPAddr), test.config.EndpointConfig.Store(nodes, server), test.config.ClusterConfig.Store(server))
 
-			// Try getting a request through the proxy.
-			if err := get(t, "http://localhost:9091/proxy/hello"); err != nil {
-				t.Fatalf("proxied request never succeeded: %v", err)
-			}
+			if !test.wantFail {
+				// Try getting a request through the proxy.
+				if err := get(t, "http://localhost:9091/proxy/hello"); err != nil {
+					t.Fatalf("proxied request never succeeded: %v", err)
+				}
 
-			// See that this actually called into our handler and isn't just some random other server
-			// that returned 200 OK.
-			select {
-			case <-time.After(100 * time.Millisecond):
-				t.Fatal("timeout waiting for ping from http handler")
-			case <-gotReqCh:
+				// See that this actually called into our handler and isn't just some random other server
+				// that returned 200 OK.
+				select {
+				case <-time.After(100 * time.Millisecond):
+					t.Fatal("timeout waiting for ping from http handler")
+				case <-gotReqCh:
+				}
+			} else {
+				if err := get(t, "http://localhost:9091/proxy/hello"); err == nil {
+					t.Fatalf("proxied request unexpectedly succeeded")
+				}
 			}
 		})
 	}
