@@ -191,8 +191,15 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 	}
 
 	m.Logger.Debug("new resource version", zap.Int("version", m.version), zap.Strings("resources", resources))
+
+	// XXX(jrockway): I am pretty sure it's faulty to cache the sessions like this, because when
+	// a session disconnects it deletes itself from the list of sessions, and then we'd be
+	// sending to a closed channel.  It works by accident; writing to the session channel causes
+	// sendUpdate to be called, which happens to block on the manager lock.  This needs to be
+	// cleaned up.
+
+	// First try sending to sessions that aren't busy.
 	blocked := make(map[session]struct{})
-	// Try sending to sessions that aren't busy.
 	for session := range m.sessions {
 		select {
 		case session <- u:
@@ -464,7 +471,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 		var ack bool
 		origVersion, version := t.version, req.GetVersionInfo()
 		if err := req.GetErrorDetail(); err != nil {
-			ext.LogError(t.span, errors.New(err.GetMessage()))
+			ext.LogError(t.span, errors.New(fmt.Printf("envoy rejected configuration: %v", err.GetMessage())))
 			l.Error("envoy rejected configuration", zap.Any("error", err), zap.String("version.rejected", origVersion), zap.String("version.in_use", version), zap.Object("tx", t))
 			xdsConfigAcceptanceStatus.WithLabelValues(m.Name, m.Type, "NACK").Inc()
 		} else {
