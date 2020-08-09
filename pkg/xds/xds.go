@@ -191,22 +191,28 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 	}
 
 	m.Logger.Debug("new resource version", zap.Int("version", m.version), zap.Strings("resources", resources))
-	var blocked []session
+	blocked := make(map[session]struct{})
 	// Try sending to sessions that aren't busy.
 	for session := range m.sessions {
 		select {
 		case session <- u:
 		default:
-			blocked = append(blocked, session)
+			blocked[session] = struct{}{}
 		}
 	}
 	// Then use the context to wait on busy sessions.
-	for i, session := range blocked {
-		select {
-		case session <- u:
-		case <-ctx.Done():
-			m.Logger.Error("change notification timed out", zap.Int("sessions_missed", len(blocked)-i))
-			return ctx.Err()
+	for len(blocked) > 0 {
+		for session := range blocked {
+			timer := time.NewTimer(100 * time.Millisecond)
+			select {
+			case session <- u:
+				delete(blocked, session)
+			case <-timer.C: // Don't spend the whole time interval on one slow session.
+				continue
+			case <-ctx.Done():
+				m.Logger.Error("change notification timed out", zap.Int("sessions_missed", len(blocked)))
+				return ctx.Err()
+			}
 		}
 	}
 	return nil
