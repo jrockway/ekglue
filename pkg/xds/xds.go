@@ -418,13 +418,16 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 
 	// sendUpdate starts a new transaction and sends the current resource list.
 	sendUpdate := func(ctx context.Context) error {
+		span, ctx := opentracing.StartSpanFromContext(ctx, "xds.push", ext.SpanKindConsumer)
+		t := &tx{start: time.Now(), span: span}
+
+		buildSpan := opentracing.StartSpan("xds.build_response", opentracing.ChildOf(span.Context()))
 		res, names, err := m.BuildDiscoveryResponse(resources)
+		buildSpan.Finish()
 		if err != nil {
 			l.Error("problem building response", zap.Error(err))
 			return fmt.Errorf("problem building response: %w", err)
 		}
-
-		span, ctx := opentracing.StartSpanFromContext(ctx, "xds.push", ext.SpanKindConsumer)
 		ext.PeerService.Set(span, node)
 		span.SetTag("xds_type", m.Type)
 		span.SetTag("xds_version", res.GetVersionInfo())
@@ -433,8 +436,8 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 			resourceTag = fmt.Sprintf("%s...", resourceTag[0:61])
 		}
 		span.SetTag("xds_resources", resourceTag)
-
-		t := &tx{start: time.Now(), span: span, version: res.GetVersionInfo(), nonce: res.GetNonce()}
+		t.version = res.GetVersionInfo()
+		t.nonce = res.GetNonce()
 		l.Info("pushing updated resources", zap.Object("tx", t), zap.Strings("resources", names))
 
 		select {
