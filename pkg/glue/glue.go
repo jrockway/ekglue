@@ -367,6 +367,9 @@ func (l *LocalityConfig) LocalityFromHost(hosts cache.Store, hostname string) *e
 	if l == nil || l.RegionFrom == nil && l.ZoneFrom == nil && l.SubZoneFrom == nil {
 		return result
 	}
+	if hostname == "" {
+		return result
+	}
 	var node *v1.Node
 	if hosts != nil {
 		obj, exists, err := hosts.GetByKey(hostname)
