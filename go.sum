@@ -150,6 +150,8 @@ github.com/jrockway/opinionated-server v0.0.10 h1:6xoUrodhzcJfiqWRFfjdFuR68E34Vg
 github.com/jrockway/opinionated-server v0.0.10/go.mod h1:7ESn6IcDYAFN9GJmqpqbuLm/I2YxOrFIyAK4s8QbBr0=
 github.com/jrockway/opinionated-server v0.0.11 h1:jdQyQHZULftVDSghNLjr8ZhGczIjnlvvS1IqyTrPstw=
 github.com/jrockway/opinionated-server v0.0.11/go.mod h1:s4Y+XJLCRdyIriY96G19XRjlbr8RMD5vwV4y7AZVZVg=
+github.com/jrockway/opinionated-server v0.0.12 h1:+IqcttUlBew/qjx2gmRAJYP5/4guQAs9Cfc1Up8u5Ec=
+github.com/jrockway/opinionated-server v0.0.12/go.mod h1:s4Y+XJLCRdyIriY96G19XRjlbr8RMD5vwV4y7AZVZVg=
 github.com/json-iterator/go v0.0.0-20180612202835-f2b4162afba3/go.mod h1:+SdeFBvtyEkXs7REEP0seUULqWtbJapLOCVDaaPEHmU=
 github.com/json-iterator/go v1.1.6/go.mod h1:+SdeFBvtyEkXs7REEP0seUULqWtbJapLOCVDaaPEHmU=
 github.com/json-iterator/go v1.1.8 h1:QiWkFLKq0T7mpzwOTu6BzNDbfTE8OLrYhVKYMLF46Ok=
