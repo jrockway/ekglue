@@ -75,7 +75,7 @@ func resourceName(r Resource) string {
 
 // Update is information about a resource change.
 type update struct {
-	ctx       context.Context     // context to extract an opentracing parent span from
+	span      opentracing.Span
 	resources map[string]struct{} // set of resources that changed; must not be written to
 }
 
@@ -185,7 +185,7 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 	m.version++
 	xdsConfigLastUpdated.WithLabelValues(m.Name, m.Type).SetToCurrentTime()
 
-	u := update{ctx: ctx, resources: make(map[string]struct{})}
+	u := update{span: opentracing.SpanFromContext(ctx), resources: make(map[string]struct{})}
 	for _, name := range resources {
 		u.resources[name] = struct{}{}
 	}
@@ -205,7 +205,7 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 		select {
 		case session <- u:
 		case <-ctx.Done():
-			m.Logger.Warn("change notification timed out", zap.Int("sessions_missed", len(blocked)-i))
+			m.Logger.Error("change notification timed out", zap.Int("sessions_missed", len(blocked)-i))
 			return ctx.Err()
 		}
 	}
@@ -385,7 +385,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 	l := ctxzap.Extract(ctx).With(zap.String("xds_type", m.Type))
 
 	// Channel for receiving resource updates.
-	rCh := make(session, 1)
+	rCh := make(session)
 	m.Lock()
 	m.sessions[rCh] = struct{}{}
 	m.Unlock()
@@ -411,11 +411,11 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 	var resources []string
 
 	// sendUpdate starts a new transaction and sends the current resource list.
-	sendUpdate := func(ctx context.Context) {
+	sendUpdate := func(ctx context.Context) error {
 		res, names, err := m.BuildDiscoveryResponse(resources)
 		if err != nil {
 			l.Error("problem building response", zap.Error(err))
-			return
+			return fmt.Errorf("problem building response: %w", err)
 		}
 
 		span, ctx := opentracing.StartSpanFromContext(ctx, "xds.push", ext.SpanKindConsumer)
@@ -431,7 +431,6 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 		t := &tx{start: time.Now(), span: span, version: res.GetVersionInfo(), nonce: res.GetNonce()}
 		l.Info("pushing updated resources", zap.Object("tx", t), zap.Strings("resources", names))
 
-		timer := time.NewTimer(5 * time.Second)
 		select {
 		case resCh <- res:
 			for _, n := range names {
@@ -440,11 +439,13 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 			}
 			txs[res.GetNonce()] = t
 			span.LogEvent("pushed resources")
-			timer.Stop()
-		case <-timer.C:
-			l.Info("push timed out", zap.Object("tx", t))
-			ext.LogError(span, errors.New("push timed out"))
+			return nil
+		case <-ctx.Done():
+			err := ctx.Err()
+			l.Info("push timed out", zap.Object("tx", t), zap.Error(err))
+			ext.LogError(span, fmt.Errorf("push timed out: %w", err))
 			t.span.Finish()
+			return fmt.Errorf("push timed out: %v", err)
 		}
 	}
 
@@ -484,6 +485,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 
 	// when cleanupTicker ticks, we attempt to delete transactions that have been forgotten.
 	cleanupTicker := time.NewTicker(time.Minute)
+	defer cleanupTicker.Stop()
 
 	for {
 		select {
@@ -538,7 +540,12 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 				// and Envoy connects to a new replica.
 				l.Info("envoy sent acknowledgement of unrecognized nonce; resending config", zap.String("nonce", nonce))
 			}
-			sendUpdate(ctx)
+			tctx, c := context.WithTimeout(ctx, 5*time.Second)
+			if err := sendUpdate(tctx); err != nil {
+				c()
+				return fmt.Errorf("pushing resources: %w", err)
+			}
+			c()
 		case u := <-rCh:
 			var send bool
 			for _, name := range resources {
@@ -548,7 +555,12 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 				}
 			}
 			if len(resources) == 0 || send {
-				sendUpdate(u.ctx)
+				tctx, c := context.WithTimeout(ctx, 5*time.Second)
+				if err := sendUpdate(opentracing.ContextWithSpan(tctx, u.span)); err != nil {
+					c()
+					return fmt.Errorf("pushing resources: %w", err)
+				}
+				c()
 			}
 		}
 	}

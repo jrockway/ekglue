@@ -42,11 +42,10 @@ func get(t *testing.T, url string) error {
 		req = req.WithContext(ctx)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
-			t.Logf("ping envoy: attempt %d: %v", i, err)
+			t.Logf("get %v: attempt %d: %v", url, i, err)
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
-		t.Logf("ping envoy: attempt %d: ok", i)
 		if got, want := res.StatusCode, http.StatusOK; got != want {
 			t.Logf("get %v: attempt %d: status code %d", url, i, got)
 			time.Sleep(200 * time.Millisecond)
@@ -462,7 +461,7 @@ func TestXDS(t *testing.T) {
 				}
 			} else {
 				if err := get(t, "http://localhost:9091/proxy/hello"); err == nil {
-					t.Fatalf("proxied request unexpectedly succeeded")
+					t.Fatal("proxied request unexpectedly succeeded")
 				}
 			}
 		})
