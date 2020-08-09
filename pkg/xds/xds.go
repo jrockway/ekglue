@@ -471,7 +471,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 		var ack bool
 		origVersion, version := t.version, req.GetVersionInfo()
 		if err := req.GetErrorDetail(); err != nil {
-			ext.LogError(t.span, errors.New(fmt.Printf("envoy rejected configuration: %v", err.GetMessage())))
+			ext.LogError(t.span, fmt.Errorf("envoy rejected configuration: %v", err.GetMessage()))
 			l.Error("envoy rejected configuration", zap.Any("error", err), zap.String("version.rejected", origVersion), zap.String("version.in_use", version), zap.Object("tx", t))
 			xdsConfigAcceptanceStatus.WithLabelValues(m.Name, m.Type, "NACK").Inc()
 		} else {
