@@ -90,10 +90,8 @@ type Acknowledgment struct {
 }
 
 // Manager consumes a stream of resource change, and notifies connected xDS clients of the change.
-// It is not safe to mutate any public fields after the manager has received a client connection
-// without taking the lock.
+// It is not safe to mutate any public fields after the manager has received a client connection.
 type Manager struct {
-	sync.Mutex
 	// Name is the name of this manager, for logging/monitoring.
 	Name string
 	// VersionPrefix is a prefix to prepend to the version number, typically the server's pod name.
@@ -108,9 +106,12 @@ type Manager struct {
 	// Draining is a channel that, when closed, will drain client connections.
 	Draining chan struct{}
 
-	version   int
-	resources map[string]Resource
-	sessions  map[session]struct{}
+	resourcesMu sync.Mutex
+	resources   map[string]Resource
+	version     int
+
+	sessionsMu sync.Mutex
+	sessions   map[session]struct{}
 }
 
 // NewManager creates a new manager.  resource is an instance of the type to manage.
@@ -127,12 +128,12 @@ func NewManager(name, versionPrefix string, resource Resource, drainCh chan stru
 	return m
 }
 
-// version returns the version number of the current config.  You must hold the Manager's lock.
+// version returns the version number of the current config.  You must hold the resource lock.
 func (m *Manager) versionString() string {
 	return fmt.Sprintf("%s%d", m.VersionPrefix, m.version)
 }
 
-// snapshotAll returns the current list of managed resources.  You must hold the Manager's lock.
+// snapshotAll returns the current list of managed resources.  You must hold the resource lock.
 func (m *Manager) snapshotAll() ([]*any.Any, []string, string, error) {
 	result := make([]*any.Any, 0, len(m.resources))
 	names := make([]string, 0, len(m.resources))
@@ -177,12 +178,14 @@ func (m *Manager) snapshot(want []string) ([]*any.Any, []string, string, error) 
 	return result, names, m.versionString(), nil
 }
 
-// notify notifies connected clients of the change.  You must hold the Manager's lock.
+// notify notifies connected clients of the change.
 func (m *Manager) notify(ctx context.Context, resources []string) error {
 	if len(resources) < 1 {
 		return nil
 	}
+	m.resourcesMu.Lock()
 	m.version++
+	m.resourcesMu.Unlock()
 	xdsConfigLastUpdated.WithLabelValues(m.Name, m.Type).SetToCurrentTime()
 
 	u := update{span: opentracing.SpanFromContext(ctx), resources: make(map[string]struct{})}
@@ -192,14 +195,9 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 
 	m.Logger.Debug("new resource version", zap.Int("version", m.version), zap.Strings("resources", resources))
 
-	// XXX(jrockway): I am pretty sure it's faulty to cache the sessions like this, because when
-	// a session disconnects it deletes itself from the list of sessions, and then we'd be
-	// sending to a closed channel.  It works by accident; writing to the session channel causes
-	// sendUpdate to be called, which happens to block on the manager lock.  This needs to be
-	// cleaned up.
-
 	// First try sending to sessions that aren't busy.
 	blocked := make(map[session]struct{})
+	m.sessionsMu.Lock()
 	for session := range m.sessions {
 		select {
 		case session <- u:
@@ -215,26 +213,25 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 			case session <- u:
 				delete(blocked, session)
 			case <-timer.C: // Don't spend the whole time interval on one slow session.
-				continue
 			case <-ctx.Done():
 				m.Logger.Error("change notification timed out", zap.Int("sessions_missed", len(blocked)))
 				return ctx.Err()
 			}
 		}
 	}
+	m.sessionsMu.Unlock()
 	return nil
 }
 
 // Add adds or replaces (by name) managed resources, and notifies connected clients of the change.
 func (m *Manager) Add(ctx context.Context, rs []Resource) error {
-	m.Lock()
-	defer m.Unlock()
 	var changed []string
 	for _, r := range rs {
 		n := resourceName(r)
 		if err := r.Validate(); err != nil {
 			return fmt.Errorf("%q: %w", n, err)
 		}
+		m.resourcesMu.Lock()
 		if _, overwrote := m.resources[n]; overwrote {
 			// TODO(jrockway): Check that this resource actually changed.
 			m.Logger.Info("resource updated", zap.String("name", n))
@@ -243,6 +240,7 @@ func (m *Manager) Add(ctx context.Context, rs []Resource) error {
 		}
 		changed = append(changed, n)
 		m.resources[n] = r
+		m.resourcesMu.Unlock()
 	}
 	m.notify(ctx, changed)
 	return nil
@@ -256,8 +254,7 @@ func (m *Manager) Replace(ctx context.Context, rs []Resource) error {
 			return fmt.Errorf("%q: %w", resourceName(r), err)
 		}
 	}
-	m.Lock()
-	defer m.Unlock()
+	m.resourcesMu.Lock()
 	var changed []string
 	old := m.resources
 	m.resources = make(map[string]Resource)
@@ -276,25 +273,28 @@ func (m *Manager) Replace(ctx context.Context, rs []Resource) error {
 		changed = append(changed, n)
 		m.Logger.Info("resource deleted", zap.String("name", n))
 	}
+	m.resourcesMu.Unlock()
 	m.notify(ctx, changed)
 	return nil
 }
 
 // Delete deletes a single resource by name and notifies clients of the change.
 func (m *Manager) Delete(ctx context.Context, n string) {
-	m.Lock()
-	defer m.Unlock()
+	m.resourcesMu.Lock()
 	if _, ok := m.resources[n]; ok {
 		delete(m.resources, n)
 		m.Logger.Info("resource deleted", zap.String("name", n))
+		m.resourcesMu.Unlock()
 		m.notify(ctx, []string{n})
+		return
 	}
+	m.resourcesMu.Unlock()
 }
 
 // ListKeys returns the sorted names of managed resources.
 func (m *Manager) ListKeys() []string {
-	m.Lock()
-	defer m.Unlock()
+	m.resourcesMu.Lock()
+	defer m.resourcesMu.Unlock()
 	result := make([]string, 0, len(m.resources))
 	for _, r := range m.resources {
 		result = append(result, resourceName(r))
@@ -305,8 +305,8 @@ func (m *Manager) ListKeys() []string {
 
 // List returns the managed resources.
 func (m *Manager) List() []Resource {
-	m.Lock()
-	defer m.Unlock()
+	m.resourcesMu.Lock()
+	defer m.resourcesMu.Unlock()
 	result := make([]Resource, 0, len(m.resources))
 	for _, r := range m.resources {
 		result = append(result, r)
@@ -373,8 +373,8 @@ func randomString() string {
 }
 
 func (m *Manager) BuildDiscoveryResponse(subscribed []string) (*discovery_v3.DiscoveryResponse, []string, error) {
-	m.Lock()
-	defer m.Unlock()
+	m.resourcesMu.Lock()
+	defer m.resourcesMu.Unlock()
 	resources, names, version, err := m.snapshot(subscribed)
 	if err != nil {
 		return nil, nil, fmt.Errorf("snapshot resources: %w", err)
@@ -399,19 +399,28 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 
 	// Channel for receiving resource updates.
 	rCh := make(session)
-	m.Lock()
+	m.sessionsMu.Lock()
 	m.sessions[rCh] = struct{}{}
-	m.Unlock()
+	m.sessionsMu.Unlock()
 
 	// In-flight transactions.
 	txs := map[string]*tx{}
 
 	// Cleanup.
 	defer func() {
-		m.Lock()
+		go func() {
+			// Keep the channel drained while we're waiting for the sessionsMu.
+			for {
+				_, ok := <-rCh
+				if !ok {
+					return
+				}
+			}
+		}()
+		m.sessionsMu.Lock()
 		delete(m.sessions, rCh)
 		close(rCh)
-		m.Unlock()
+		m.sessionsMu.Unlock()
 		for _, t := range txs {
 			t.span.Finish()
 		}
