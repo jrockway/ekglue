@@ -13,10 +13,6 @@ import (
 	"time"
 
 	discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/any"
 	"github.com/google/go-cmp/cmp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/opentracing/opentracing-go"
@@ -28,6 +24,9 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"sigs.k8s.io/yaml"
 )
 
@@ -119,7 +118,7 @@ func NewManager(name, versionPrefix string, resource Resource, drainCh chan stru
 	m := &Manager{
 		Name:          name,
 		VersionPrefix: versionPrefix,
-		Type:          "type.googleapis.com/" + proto.MessageName(resource),
+		Type:          "type.googleapis.com/" + string(resource.ProtoReflect().Descriptor().FullName()),
 		Logger:        zap.L().Named(name),
 		Draining:      drainCh,
 		resources:     make(map[string]Resource),
@@ -134,11 +133,11 @@ func (m *Manager) versionString() string {
 }
 
 // snapshotAll returns the current list of managed resources.  You must hold the resource lock.
-func (m *Manager) snapshotAll() ([]*any.Any, []string, string, error) {
-	result := make([]*any.Any, 0, len(m.resources))
+func (m *Manager) snapshotAll() ([]*anypb.Any, []string, string, error) {
+	result := make([]*anypb.Any, 0, len(m.resources))
 	names := make([]string, 0, len(m.resources))
 	for n, r := range m.resources {
-		any, err := ptypes.MarshalAny(r)
+		any, err := anypb.New(r)
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("marshal resource %s to any: %w", n, err)
 		}
@@ -149,11 +148,11 @@ func (m *Manager) snapshotAll() ([]*any.Any, []string, string, error) {
 }
 
 // snapshot returns a subset of managed resources.  You must hold the Manager's lock.
-func (m *Manager) snapshot(want []string) ([]*any.Any, []string, string, error) {
+func (m *Manager) snapshot(want []string) ([]*anypb.Any, []string, string, error) {
 	if len(want) == 0 {
 		return m.snapshotAll()
 	}
-	result := make([]*any.Any, 0, len(want))
+	result := make([]*anypb.Any, 0, len(want))
 	names := make([]string, 0, len(want))
 	for _, name := range want {
 		r, ok := m.resources[name]
@@ -166,7 +165,7 @@ func (m *Manager) snapshot(want []string) ([]*any.Any, []string, string, error) 
 			m.Logger.Debug("requested resource is not available", zap.String("resource_name", name))
 			continue
 		}
-		any, err := ptypes.MarshalAny(r)
+		any, err := anypb.New(r)
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("marshal resource %s to any: %w", name, err)
 		}
@@ -648,9 +647,9 @@ func (m *Manager) ConfigAsYAML(verbose bool) ([]byte, error) {
 	list := struct {
 		Resources []json.RawMessage `json:"resources"`
 	}{}
-	jsonm := &jsonpb.Marshaler{EmitDefaults: verbose, OrigName: true}
+	jsonm := &protojson.MarshalOptions{EmitUnpopulated: verbose}
 	for _, r := range rs {
-		j, err := jsonm.MarshalToString(r)
+		j, err := jsonm.Marshal(r)
 		if err != nil {
 			return nil, err
 		}

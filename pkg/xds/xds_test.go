@@ -10,7 +10,6 @@ import (
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/go-test/deep"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
@@ -67,7 +66,7 @@ func TestManager(t *testing.T) {
 			var got []string
 			for _, r := range rs {
 				c := new(envoy_api_v2.Cluster)
-				if err := ptypes.UnmarshalAny(r, c); err != nil {
+				if err := r.UnmarshalTo(c); err != nil {
 					t.Fatalf("unmarshal cluster: %v", err)
 				}
 				got = append(got, c.GetName())

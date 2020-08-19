@@ -10,12 +10,11 @@ import (
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
 	envoy_type "github.com/envoyproxy/go-control-plane/envoy/type"
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/google/go-cmp/cmp"
 	"github.com/jrockway/ekglue/pkg/cds"
 	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
@@ -54,7 +53,7 @@ func TestClustersFromService(t *testing.T) {
 			want: []*envoy_api_v2.Cluster{
 				{
 					Name:                 "foo:bar:http",
-					ConnectTimeout:       ptypes.DurationProto(time.Second),
+					ConnectTimeout:       durationpb.New(time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
 					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
 				},
@@ -109,13 +108,13 @@ func TestClustersFromService(t *testing.T) {
 			want: []*envoy_api_v2.Cluster{
 				{
 					Name:                 "foo:bar:http",
-					ConnectTimeout:       ptypes.DurationProto(time.Second),
+					ConnectTimeout:       durationpb.New(time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
 					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
 				},
 				{
 					Name:                 "foo:bar:443",
-					ConnectTimeout:       ptypes.DurationProto(time.Second),
+					ConnectTimeout:       durationpb.New(time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
 					LoadAssignment:       singleTargetLoadAssignment("foo:bar:443", "bar.foo.svc.cluster.local.", 443, envoy_api_v2_core.SocketAddress_TCP),
 				},
@@ -144,21 +143,17 @@ func TestClustersFromService(t *testing.T) {
 			want: []*envoy_api_v2.Cluster{
 				{
 					Name:                 "foo:bar:http2",
-					ConnectTimeout:       ptypes.DurationProto(2 * time.Second),
+					ConnectTimeout:       durationpb.New(2 * time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
 					LbPolicy:             envoy_api_v2.Cluster_RANDOM,
 					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http2", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
 					Http2ProtocolOptions: &envoy_api_v2_core.Http2ProtocolOptions{},
 					HealthChecks: []*envoy_api_v2_core.HealthCheck{
 						{
-							Timeout:  ptypes.DurationProto(time.Second),
-							Interval: ptypes.DurationProto(10 * time.Second),
-							HealthyThreshold: &wrappers.UInt32Value{
-								Value: 1,
-							},
-							UnhealthyThreshold: &wrappers.UInt32Value{
-								Value: 2,
-							},
+							Timeout:            durationpb.New(time.Second),
+							Interval:           durationpb.New(10 * time.Second),
+							HealthyThreshold:   wrapperspb.UInt32(1),
+							UnhealthyThreshold: wrapperspb.UInt32(2),
 							HealthChecker: &envoy_api_v2_core.HealthCheck_HttpHealthCheck_{
 								HttpHealthCheck: &envoy_api_v2_core.HealthCheck_HttpHealthCheck{
 									Host:            "test",
@@ -194,7 +189,7 @@ func TestClustersFromService(t *testing.T) {
 			want: []*envoy_api_v2.Cluster{
 				{
 					Name:           "foo:eds:http",
-					ConnectTimeout: ptypes.DurationProto(time.Second),
+					ConnectTimeout: durationpb.New(time.Second),
 					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
 						Type: envoy_api_v2.Cluster_EDS,
 					},
@@ -277,7 +272,7 @@ func TestLoadConfig(t *testing.T) {
 				APIVersion: "v1alpha",
 				ClusterConfig: &ClusterConfig{
 					BaseConfig: &envoy_api_v2.Cluster{
-						ConnectTimeout: ptypes.DurationProto(2 * time.Second),
+						ConnectTimeout: durationpb.New(2 * time.Second),
 					},
 					Overrides: []*ClusterOverride{
 						{
@@ -658,8 +653,8 @@ func TestLocality(t *testing.T) {
 
 	for i, test := range testData {
 		got := test.localityConfig.LocalityFromHost(nodes, test.input)
-		if want := test.want; !proto.Equal(got, want) {
-			t.Errorf("test %d: locality:\n  got: %#v\n want: %#v", i, got, want)
+		if diff := cmp.Diff(got, test.want, protocmp.Transform()); diff != "" {
+			t.Errorf("test %d: locality:\n  %s", i, diff)
 		}
 	}
 }

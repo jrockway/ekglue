@@ -16,7 +16,6 @@ import (
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	endpointservice "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/jrockway/ekglue/pkg/cds"
 	"github.com/jrockway/ekglue/pkg/glue"
@@ -24,6 +23,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/durationpb"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
@@ -65,7 +65,7 @@ func get(t *testing.T, url string) error {
 var dynamicConfig = &glue.Config{
 	ClusterConfig: &glue.ClusterConfig{
 		BaseConfig: &envoy_api_v2.Cluster{
-			ConnectTimeout: ptypes.DurationProto(time.Second),
+			ConnectTimeout: durationpb.New(time.Second),
 			ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
 				Type: envoy_api_v2.Cluster_EDS,
 			},
@@ -82,7 +82,7 @@ var dynamicConfig = &glue.Config{
 							}},
 						},
 					},
-					InitialFetchTimeout: ptypes.DurationProto(time.Second),
+					InitialFetchTimeout: durationpb.New(time.Second),
 					ResourceApiVersion:  envoy_api_v2_core.ApiVersion_V2,
 				},
 			},
@@ -94,7 +94,7 @@ var dynamicConfig = &glue.Config{
 var dynamicV2config = &glue.Config{
 	ClusterConfig: &glue.ClusterConfig{
 		BaseConfig: &envoy_api_v2.Cluster{
-			ConnectTimeout: ptypes.DurationProto(time.Second),
+			ConnectTimeout: durationpb.New(time.Second),
 			ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
 				Type: envoy_api_v2.Cluster_EDS,
 			},
@@ -111,7 +111,7 @@ var dynamicV2config = &glue.Config{
 							}},
 						},
 					},
-					InitialFetchTimeout: ptypes.DurationProto(time.Second),
+					InitialFetchTimeout: durationpb.New(time.Second),
 					ResourceApiVersion:  envoy_api_v2_core.ApiVersion_V2,
 				},
 			},
@@ -133,7 +133,7 @@ func TestXDS(t *testing.T) {
 			config: &glue.Config{
 				ClusterConfig: &glue.ClusterConfig{
 					BaseConfig: &envoy_api_v2.Cluster{
-						ConnectTimeout: ptypes.DurationProto(time.Second),
+						ConnectTimeout: durationpb.New(time.Second),
 						DnsResolvers: []*envoy_api_v2_core.Address{{
 							Address: &envoy_api_v2_core.Address_SocketAddress{
 								SocketAddress: &envoy_api_v2_core.SocketAddress{
@@ -145,7 +145,7 @@ func TestXDS(t *testing.T) {
 							},
 						}},
 						DnsLookupFamily:     envoy_api_v2.Cluster_V4_ONLY,
-						DnsRefreshRate:      ptypes.DurationProto(100 * time.Millisecond),
+						DnsRefreshRate:      durationpb.New(100 * time.Millisecond),
 						UseTcpForDnsLookups: true,
 					},
 				},

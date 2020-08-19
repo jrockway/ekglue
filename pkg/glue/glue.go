@@ -14,15 +14,15 @@ import (
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/jrockway/ekglue/pkg/cds"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/yaml"
@@ -92,7 +92,7 @@ func (o *ClusterOverride) UnmarshalJSON(b []byte) error {
 	o.Suppress = tmp.Suppress
 	if len(tmp.Override) > 0 {
 		base := &envoy_api_v2.Cluster{}
-		if err := jsonpb.UnmarshalString(string(tmp.Override), base); err != nil {
+		if err := protojson.Unmarshal(tmp.Override, base); err != nil {
 			return fmt.Errorf("ClusterOverride: unmarshal Override: %w", err)
 		}
 		o.Override = base
@@ -128,7 +128,7 @@ func (c *ClusterConfig) UnmarshalJSON(b []byte) error {
 	c.Overrides = tmp.Overrides
 
 	base := &envoy_api_v2.Cluster{}
-	if err := jsonpb.UnmarshalString(string(tmp.BaseConfig), base); err != nil {
+	if err := protojson.Unmarshal(tmp.BaseConfig, base); err != nil {
 		return fmt.Errorf("ClusterConfig: unmarshal BaseConfig %s: %w", tmp.BaseConfig, err)
 	}
 	base.Name = "XXX" // required for validation, but we will always add it ourselves later
@@ -176,7 +176,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		ClusterConfig: &ClusterConfig{
 			BaseConfig: &envoy_api_v2.Cluster{
-				ConnectTimeout: ptypes.DurationProto(time.Second),
+				ConnectTimeout: durationpb.New(time.Second),
 			},
 		},
 		EndpointConfig: &EndpointConfig{
@@ -404,14 +404,14 @@ type nodeLocalities struct {
 // provided cache.Store.
 func (l *LocalityConfig) LocalitiesAsYAML(nodes cache.Store) ([]byte, error) {
 	localities := &nodeLocalities{Localities: make(map[string]json.RawMessage)}
-	jsonm := &jsonpb.Marshaler{EmitDefaults: false, OrigName: true}
+	jsonm := &protojson.MarshalOptions{EmitUnpopulated: false}
 	for _, obj := range nodes.List() {
 		node, ok := obj.(*v1.Node)
 		locality := &envoy_api_v2_core.Locality{}
 		if ok {
 			locality = l.LocalityFromHost(nodes, node.GetName())
 		}
-		locJSON, err := jsonm.MarshalToString(locality)
+		locJSON, err := jsonm.Marshal(locality)
 		if err != nil {
 			return nil, fmt.Errorf("marshal json for node %s: %v", node.GetName(), err)
 		}
