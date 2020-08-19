@@ -20,7 +20,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/status"
 )
 
-func requestClusters(version string, nonce string, err *status.Status) *discovery_v3.DiscoveryRequest {
+func requestClusters(version, nonce string, err *status.Status) *discovery_v3.DiscoveryRequest {
 	return &discovery_v3.DiscoveryRequest{
 		VersionInfo:   version,
 		ResponseNonce: nonce,

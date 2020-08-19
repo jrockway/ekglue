@@ -458,10 +458,8 @@ func TestXDS(t *testing.T) {
 					t.Fatal("timeout waiting for ping from http handler")
 				case <-gotReqCh:
 				}
-			} else {
-				if err := get(t, "http://localhost:9091/proxy/hello"); err == nil {
-					t.Fatal("proxied request unexpectedly succeeded")
-				}
+			} else if err := get(t, "http://localhost:9091/proxy/hello"); err == nil {
+				t.Fatal("proxied request unexpectedly succeeded")
 			}
 		})
 	}

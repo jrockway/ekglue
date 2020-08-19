@@ -57,8 +57,11 @@ type Matcher struct {
 }
 
 // Evaluate returns true if the matcher matches the provided objects.
-func (m *Matcher) Evaluate(cluster *envoy_api_v2.Cluster, svc *v1.Service, port v1.ServicePort) bool {
+func (m *Matcher) Evaluate(cluster *envoy_api_v2.Cluster, svc *v1.Service, port *v1.ServicePort) bool {
 	if m == nil {
+		return false
+	}
+	if port == nil {
 		return false
 	}
 	if m.ClusterName != "" {
@@ -220,7 +223,7 @@ func (c *ClusterConfig) GetBaseConfig() *envoy_api_v2.Cluster {
 
 // ApplyOverride returns the cluster after applying any configured overrides.  It will return nil if
 // the cluster is suppressed.
-func (c *ClusterConfig) ApplyOverride(cluster *envoy_api_v2.Cluster, svc *v1.Service, port v1.ServicePort) *envoy_api_v2.Cluster {
+func (c *ClusterConfig) ApplyOverride(cluster *envoy_api_v2.Cluster, svc *v1.Service, port *v1.ServicePort) *envoy_api_v2.Cluster {
 	for _, o := range c.Overrides {
 		var match bool
 		for _, m := range o.Match {
@@ -242,17 +245,17 @@ func (c *ClusterConfig) ApplyOverride(cluster *envoy_api_v2.Cluster, svc *v1.Ser
 	return cluster
 }
 
-func singleTargetLoadAssignment(cluster, hostname string, port int32, proto envoy_api_v2_core.SocketAddress_Protocol) *envoy_api_v2.ClusterLoadAssignment {
+func singleTargetLoadAssignment(cluster, hostname string, port int32, protocol envoy_api_v2_core.SocketAddress_Protocol) *envoy_api_v2.ClusterLoadAssignment {
 	return &envoy_api_v2.ClusterLoadAssignment{
 		ClusterName: cluster,
 		Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{{
 			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-				lbEndpoint(hostname, port, proto, envoy_api_v2_core.HealthStatus_UNKNOWN)},
+				lbEndpoint(hostname, port, protocol, envoy_api_v2_core.HealthStatus_UNKNOWN)},
 		}},
 	}
 }
 
-func lbEndpoint(hostname string, port int32, proto envoy_api_v2_core.SocketAddress_Protocol, health envoy_api_v2_core.HealthStatus) *envoy_api_v2_endpoint.LbEndpoint {
+func lbEndpoint(hostname string, port int32, protocol envoy_api_v2_core.SocketAddress_Protocol, health envoy_api_v2_core.HealthStatus) *envoy_api_v2_endpoint.LbEndpoint {
 	return &envoy_api_v2_endpoint.LbEndpoint{
 		HealthStatus: health,
 		HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
@@ -260,7 +263,7 @@ func lbEndpoint(hostname string, port int32, proto envoy_api_v2_core.SocketAddre
 				Address: &envoy_api_v2_core.Address{
 					Address: &envoy_api_v2_core.Address_SocketAddress{
 						SocketAddress: &envoy_api_v2_core.SocketAddress{
-							Protocol: proto,
+							Protocol: protocol,
 							Address:  hostname,
 							PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
 								PortValue: uint32(port),
@@ -299,7 +302,7 @@ func nameCluster(namespace, serviceOrEndpoint, portName string, portNumber int32
 	case v1.ProtocolSCTP:
 		// Envoy doesn't support SCTP, so neither do we.  See Envoy issue
 		// https://github.com/envoyproxy/envoy/issues/9430
-		fallthrough
+		fallthrough // nolint
 	default:
 		return "", 0
 	}
@@ -324,7 +327,7 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 			// Ignore clusters that we can't name, probably because they use an unsupported protcol.
 			continue
 		}
-		cl = c.ApplyOverride(cl, svc, port)
+		cl = c.ApplyOverride(cl, svc, &port)
 		if cl == nil {
 			continue
 		}

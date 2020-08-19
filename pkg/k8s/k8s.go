@@ -3,7 +3,6 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/jrockway/opinionated-server/client"
@@ -26,10 +25,7 @@ type ClusterWatcher struct {
 
 // New returns a ClusterWatcher from a kubernetes config.
 func New(config *rest.Config) (*ClusterWatcher, error) {
-	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		return client.WrapRoundTripper(rt)
-	}
-
+	config.WrapTransport = client.WrapRoundTripper
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: new client: %w", err)
@@ -38,7 +34,7 @@ func New(config *rest.Config) (*ClusterWatcher, error) {
 }
 
 // ConnectOutOfCluster connects to the API server from outside of the cluster.
-func ConnectOutOfCluster(kubeconfig string, master string) (*ClusterWatcher, error) {
+func ConnectOutOfCluster(kubeconfig, master string) (*ClusterWatcher, error) {
 	config, err := clientcmd.BuildConfigFromFlags(master, kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: build config: %w", err)
@@ -57,7 +53,7 @@ func ConnectInCluster() (*ClusterWatcher, error) {
 
 // NewListWatch returns a ListerWatcher that watches the configured k8s API object with the built-in
 // client.
-func (cw *ClusterWatcher) NewListWatch(resource string, namespace string, fieldSelector fields.Selector) cache.ListerWatcher {
+func (cw *ClusterWatcher) NewListWatch(resource, namespace string, fieldSelector fields.Selector) cache.ListerWatcher {
 	if cw.testLW != nil {
 		return cw.testLW
 	}
