@@ -830,9 +830,7 @@ func TestAllCacheMethods(t *testing.T) {
 		t.Helper()
 		sort.Strings(want)
 		var got []string
-		for _, e := range xds.Endpoints.ListKeys() {
-			got = append(got, e)
-		}
+		got = append(got, xds.Endpoints.ListKeys()...)
 		sort.Strings(got)
 		if diff := cmp.Diff(got, want); diff != "" {
 			t.Errorf("assertEndpoints:\n  got: %v\n want: %v\n diff: %v", got, want, diff)
