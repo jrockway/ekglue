@@ -81,7 +81,7 @@ func (w *watcher) ResultChan() <-chan watch.Event {
 	return w.eventCh
 }
 
-func NewWatcher(objects []runtime.Object) *watcher {
+func newWatcher(objects []runtime.Object) *watcher {
 	w := &watcher{
 		eventCh: make(chan watch.Event),
 		doneCh:  make(chan struct{}),
@@ -157,7 +157,7 @@ func TestWatchers(t *testing.T) {
 	for i, test := range testData {
 		ctx, c := context.WithTimeout(context.Background(), time.Second)
 		s := cache.NewStore(cache.MetaNamespaceKeyFunc)
-		w := NewWatcher(test.add)
+		w := newWatcher(test.add)
 		cw := &ClusterWatcher{
 			testLW: &cache.ListWatch{
 				ListFunc: func(metav1.ListOptions) (runtime.Object, error) {

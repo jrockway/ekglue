@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	// For extreme debugging, you can overwrite this.
+	// Logger is the default logger for glue events; for extreme debugging, you can overwrite this.
 	Logger = zap.NewNop()
 
 	k8sChangeEvents = promauto.NewCounterVec(
@@ -165,7 +165,7 @@ type EndpointConfig struct {
 // Config configures how to turn k8s resources into Envoy Clusters and ClusterLoadAssignments.
 type Config struct {
 	// The API version of this config file; not related to the Envoy dataplane API version.
-	ApiVersion string `json:"apiVersion"`
+	APIVersion string `json:"apiVersion"`
 	// Configuration for converting services to clusters.
 	ClusterConfig *ClusterConfig `json:"cluster_config"`
 	// Configuration for converting endpoints to cluster load assignments.
@@ -200,9 +200,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	// TODO(jrockway): Future versions of this code will have to first unmarshal into a
-	// temporary structure just to read the ApiVersion, then call version-specific unmarshalling
+	// temporary structure just to read the APIVersion, then call version-specific unmarshalling
 	// code based on this value.
-	if v := cfg.ApiVersion; v != "v1alpha" {
+	if v := cfg.APIVersion; v != "v1alpha" {
 		return nil, fmt.Errorf("unknown config version %q; expected v1alpha", v)
 	}
 	return cfg, nil

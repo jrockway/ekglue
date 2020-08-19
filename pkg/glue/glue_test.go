@@ -274,7 +274,7 @@ func TestLoadConfig(t *testing.T) {
 			name:  "valid config",
 			input: "testdata/goodconfig.yaml",
 			want: &Config{
-				ApiVersion: "v1alpha",
+				APIVersion: "v1alpha",
 				ClusterConfig: &ClusterConfig{
 					BaseConfig: &envoy_api_v2.Cluster{
 						ConnectTimeout: ptypes.DurationProto(2 * time.Second),

@@ -591,9 +591,9 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 	}
 }
 
-// XDSStream is the API shared among all envoy_api_v2.[type]DiscoveryService_Stream[type]Server
+// Stream is the API shared among all envoy_api_v2.[type]DiscoveryService_Stream[type]Server
 // streams.
-type XDSStream interface {
+type Stream interface {
 	Context() context.Context
 	Recv() (*discovery_v3.DiscoveryRequest, error)
 	Send(*discovery_v3.DiscoveryResponse) error
@@ -601,7 +601,7 @@ type XDSStream interface {
 
 // StreamGRPC adapts a gRPC stream of DiscoveryRequest -> DiscoveryResponse to the API required by
 // the Stream function.
-func (m *Manager) StreamGRPC(stream XDSStream) error {
+func (m *Manager) StreamGRPC(stream Stream) error {
 	ctx := stream.Context()
 	l := ctxzap.Extract(ctx)
 	reqCh := make(chan *discovery_v3.DiscoveryRequest)
