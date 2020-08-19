@@ -602,7 +602,6 @@ type XDSStream interface {
 // StreamGRPC adapts a gRPC stream of DiscoveryRequest -> DiscoveryResponse to the API required by
 // the Stream function.
 func (m *Manager) StreamGRPC(stream XDSStream) error {
-
 	ctx := stream.Context()
 	l := ctxzap.Extract(ctx)
 	reqCh := make(chan *discovery_v3.DiscoveryRequest)
@@ -667,7 +666,6 @@ func (m *Manager) ConfigAsYAML(verbose bool) ([]byte, error) {
 		return nil, err
 	}
 	return ya, nil
-
 }
 
 // ServeHTTP dumps the currently-tracked resources as YAML.

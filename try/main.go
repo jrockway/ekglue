@@ -39,7 +39,6 @@ func ep(host string, port uint32) *envoy_api_v2_endpoint.LbEndpoint {
 			},
 		},
 	}
-
 }
 
 func main() {

@@ -183,5 +183,4 @@ func TestWatchers(t *testing.T) {
 			t.Errorf("test %d: got != want:\n diff: %s", i, diff)
 		}
 	}
-
 }

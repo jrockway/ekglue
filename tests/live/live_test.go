@@ -290,7 +290,6 @@ func TestXDS(t *testing.T) {
 						}},
 					},
 				})
-
 			},
 		}, {
 			name:       "cds with v2 eds endpoints (should break)",
@@ -338,7 +337,6 @@ func TestXDS(t *testing.T) {
 						}},
 					},
 				})
-
 			},
 		},
 	}
