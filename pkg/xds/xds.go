@@ -462,7 +462,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 				xdsResourcePushAge.WithLabelValues(m.Name, m.Type, n).SetToCurrentTime()
 			}
 			txs[res.GetNonce()] = t
-			span.LogEvent("pushed resources")
+			span.LogEvent("pushed resources") // nolint
 			return nil
 		case <-ctx.Done():
 			err := ctx.Err()
@@ -475,7 +475,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 
 	// handleTx handles an acknowledgement
 	handleTx := func(t *tx, req *discovery_v3.DiscoveryRequest) {
-		t.span.LogEvent("got response")
+		t.span.LogEvent("got response") // nolint
 		var ack bool
 		origVersion, version := t.version, req.GetVersionInfo()
 		if err := req.GetErrorDetail(); err != nil {
