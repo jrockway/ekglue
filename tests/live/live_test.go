@@ -46,6 +46,7 @@ func get(t *testing.T, url string) error {
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
+		res.Body.Close()
 		if got, want := res.StatusCode, http.StatusOK; got != want {
 			t.Logf("get %v: attempt %d: status code %d", url, i, got)
 			time.Sleep(200 * time.Millisecond)
