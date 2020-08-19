@@ -772,9 +772,8 @@ func TestAllCacheMethods(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertClusters("test:a:a", "test:b:b")
-	cb2 := &(*cb)
-	cb2.Spec.Ports[0].Port = 1234
-	if err := cs.Update(cb2); err != nil {
+	cb.Spec.Ports[0].Port = 1234
+	if err := cs.Update(cb); err != nil {
 		t.Fatal(err)
 	}
 	assertClusters("test:a:a", "test:b:b")

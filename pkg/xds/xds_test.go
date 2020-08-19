@@ -146,7 +146,7 @@ func TestManager(t *testing.T) {
 	if err := m.Replace(ctx, cs("foo", "baz")); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
-	n = assertClusters("foo", "baz")
+	assertClusters("foo", "baz")
 	ack("test-5", "nonce-completely-made-up")
 	// Confuse xds again with a wrong version number.
 	n = assertClusters("foo", "baz")
@@ -202,7 +202,7 @@ func TestNamedSubscriptions(t *testing.T) {
 		t.Fatal("timeout")
 	}
 	if got, want := len(res.GetResources()), 0; got != want {
-		t.Fatal("unexpected resource recieved")
+		t.Fatal("unexpected resource received")
 	}
 
 	// This won't block, because there are no receivers to notify.
@@ -223,7 +223,7 @@ func TestNamedSubscriptions(t *testing.T) {
 		t.Fatal("timeout")
 	}
 	if got, want := len(res.GetResources()), 1; got != want {
-		t.Fatalf("unexpected resource recieved:\n  got: %v\n want: %v", got, want)
+		t.Fatalf("unexpected resource received:\n  got: %v\n want: %v", got, want)
 	}
 
 	cancel()

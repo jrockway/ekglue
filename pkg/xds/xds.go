@@ -53,7 +53,7 @@ var (
 	// A timestamp of when each resource was last pushed.
 	xdsResourcePushAge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "ekglue_xds_resource_push_age",
-		Help: "The time when the named resouce was last pushed.",
+		Help: "The time when the named resource was last pushed.",
 	}, []string{"manager_name", "config_type", "resource_name"})
 )
 

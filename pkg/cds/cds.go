@@ -96,7 +96,7 @@ func (s *Server) ReplaceClusters(ctx context.Context, cs []*envoy_api_v2.Cluster
 	return s.Clusters.Replace(ctx, clustersToResources(cs))
 }
 
-// ListEndpoints returns the load assigments / endpoints that we are managing.
+// ListEndpoints returns the load assignments / endpoints that we are managing.
 func (s *Server) ListEndpoints() []*envoy_api_v2.ClusterLoadAssignment {
 	return resourcesToLoadAssignments(s.Endpoints.List())
 }
@@ -107,7 +107,7 @@ func (s *Server) AddEndpoints(ctx context.Context, es []*envoy_api_v2.ClusterLoa
 }
 
 // DeleteEndpoints deletes a load assignment by name, and notifies all connected clients of the
-// change.  A load assignemnt may contain many endpoints, this deletes them all.
+// change.  A load assignment may contain many endpoints, this deletes them all.
 func (s *Server) DeleteEndpoints(ctx context.Context, name string) {
 	s.Endpoints.Delete(ctx, name)
 }

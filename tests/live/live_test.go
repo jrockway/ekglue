@@ -390,7 +390,7 @@ func TestXDS(t *testing.T) {
 			restoreLogger := zap.ReplaceGlobals(logger)
 			defer restoreLogger()
 
-			// Serve a small HTTP page we can retrive through Envoy.
+			// Serve a small HTTP page we can retrieve through Envoy.
 			hl, err := net.Listen("tcp", "")
 			if err != nil {
 				t.Fatalf("listen: %v", err)
