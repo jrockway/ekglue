@@ -8,7 +8,7 @@ require (
 	github.com/go-test/deep v1.0.5
 	github.com/google/go-cmp v0.5.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
-	github.com/jrockway/opinionated-server v0.0.12
+	github.com/jrockway/opinionated-server v0.0.16
 	github.com/miekg/dns v1.1.30
 	github.com/opentracing/opentracing-go v1.2.0
 	github.com/prometheus/client_golang v1.7.1
