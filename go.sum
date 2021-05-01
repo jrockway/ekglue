@@ -178,6 +178,8 @@ github.com/jessevdk/go-flags v1.4.0 h1:4IU2WS7AumrZ/40jfhf4QVDMsQwqA7VEHozFRrGAR
 github.com/jessevdk/go-flags v1.4.0/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
 github.com/jrockway/opinionated-server v0.0.17 h1:iMWJv3gpbEtnY7d/zCBn0Sg0x9Z2FWZ/9nCB7dLxYV0=
 github.com/jrockway/opinionated-server v0.0.17/go.mod h1:r0RPL9Se1L9phQS9bP/Uwazs0eLVlxdD+nR6LFX1i/0=
+github.com/jrockway/opinionated-server v0.0.19 h1:laaImThFCMNvajywNCyNj7dv77IkK00R22lRhgNEItU=
+github.com/jrockway/opinionated-server v0.0.19/go.mod h1:r0RPL9Se1L9phQS9bP/Uwazs0eLVlxdD+nR6LFX1i/0=
 github.com/json-iterator/go v1.1.6/go.mod h1:+SdeFBvtyEkXs7REEP0seUULqWtbJapLOCVDaaPEHmU=
 github.com/json-iterator/go v1.1.10 h1:Kz6Cvnvv2wGdaG/V8yMvfkmNiXq9Ya2KUv4rouJJr68=
 github.com/json-iterator/go v1.1.10/go.mod h1:KdQUCv79m/52Kvf8AW2vK1V8akMuk1QjK/uOdHXbAo4=
