@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
-	envoy_type "github.com/envoyproxy/go-control-plane/envoy/type"
+	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_config_endpoint_v3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoy_type_v3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/jrockway/ekglue/pkg/cds"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -25,7 +25,7 @@ func TestClustersFromService(t *testing.T) {
 	testData := []struct {
 		name    string
 		service *v1.Service
-		want    []*envoy_api_v2.Cluster
+		want    []*envoy_config_cluster_v3.Cluster
 	}{
 		{
 			name: "no services",
@@ -50,12 +50,12 @@ func TestClustersFromService(t *testing.T) {
 					},
 				},
 			},
-			want: []*envoy_api_v2.Cluster{
+			want: []*envoy_config_cluster_v3.Cluster{
 				{
 					Name:                 "foo:bar:http",
 					ConnectTimeout:       durationpb.New(time.Second),
-					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
-					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
+					ClusterDiscoveryType: &envoy_config_cluster_v3.Cluster_Type{Type: envoy_config_cluster_v3.Cluster_STRICT_DNS},
+					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80, envoy_config_core_v3.SocketAddress_TCP),
 				},
 			},
 		},
@@ -105,18 +105,18 @@ func TestClustersFromService(t *testing.T) {
 					},
 				},
 			},
-			want: []*envoy_api_v2.Cluster{
+			want: []*envoy_config_cluster_v3.Cluster{
 				{
 					Name:                 "foo:bar:http",
 					ConnectTimeout:       durationpb.New(time.Second),
-					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
-					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
+					ClusterDiscoveryType: &envoy_config_cluster_v3.Cluster_Type{Type: envoy_config_cluster_v3.Cluster_STRICT_DNS},
+					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http", "bar.foo.svc.cluster.local.", 80, envoy_config_core_v3.SocketAddress_TCP),
 				},
 				{
 					Name:                 "foo:bar:443",
 					ConnectTimeout:       durationpb.New(time.Second),
-					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
-					LoadAssignment:       singleTargetLoadAssignment("foo:bar:443", "bar.foo.svc.cluster.local.", 443, envoy_api_v2_core.SocketAddress_TCP),
+					ClusterDiscoveryType: &envoy_config_cluster_v3.Cluster_Type{Type: envoy_config_cluster_v3.Cluster_STRICT_DNS},
+					LoadAssignment:       singleTargetLoadAssignment("foo:bar:443", "bar.foo.svc.cluster.local.", 443, envoy_config_core_v3.SocketAddress_TCP),
 				},
 			},
 		},
@@ -140,25 +140,25 @@ func TestClustersFromService(t *testing.T) {
 					},
 				},
 			},
-			want: []*envoy_api_v2.Cluster{
+			want: []*envoy_config_cluster_v3.Cluster{
 				{
 					Name:                 "foo:bar:http2",
 					ConnectTimeout:       durationpb.New(2 * time.Second),
-					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{Type: envoy_api_v2.Cluster_STRICT_DNS},
-					LbPolicy:             envoy_api_v2.Cluster_RANDOM,
-					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http2", "bar.foo.svc.cluster.local.", 80, envoy_api_v2_core.SocketAddress_TCP),
-					Http2ProtocolOptions: &envoy_api_v2_core.Http2ProtocolOptions{},
-					HealthChecks: []*envoy_api_v2_core.HealthCheck{
+					ClusterDiscoveryType: &envoy_config_cluster_v3.Cluster_Type{Type: envoy_config_cluster_v3.Cluster_STRICT_DNS},
+					LbPolicy:             envoy_config_cluster_v3.Cluster_RANDOM,
+					LoadAssignment:       singleTargetLoadAssignment("foo:bar:http2", "bar.foo.svc.cluster.local.", 80, envoy_config_core_v3.SocketAddress_TCP),
+					Http2ProtocolOptions: &envoy_config_core_v3.Http2ProtocolOptions{},
+					HealthChecks: []*envoy_config_core_v3.HealthCheck{
 						{
 							Timeout:            durationpb.New(time.Second),
 							Interval:           durationpb.New(10 * time.Second),
 							HealthyThreshold:   wrapperspb.UInt32(1),
 							UnhealthyThreshold: wrapperspb.UInt32(2),
-							HealthChecker: &envoy_api_v2_core.HealthCheck_HttpHealthCheck_{
-								HttpHealthCheck: &envoy_api_v2_core.HealthCheck_HttpHealthCheck{
+							HealthChecker: &envoy_config_core_v3.HealthCheck_HttpHealthCheck_{
+								HttpHealthCheck: &envoy_config_core_v3.HealthCheck_HttpHealthCheck{
 									Host:            "test",
 									Path:            "/healthz",
-									CodecClientType: envoy_type.CodecClientType_HTTP2,
+									CodecClientType: envoy_type_v3.CodecClientType_HTTP2,
 								},
 							},
 						},
@@ -186,22 +186,23 @@ func TestClustersFromService(t *testing.T) {
 					},
 				},
 			},
-			want: []*envoy_api_v2.Cluster{
+			want: []*envoy_config_cluster_v3.Cluster{
 				{
 					Name:           "foo:eds:http",
 					ConnectTimeout: durationpb.New(time.Second),
-					ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
-						Type: envoy_api_v2.Cluster_EDS,
+					ClusterDiscoveryType: &envoy_config_cluster_v3.Cluster_Type{
+						Type: envoy_config_cluster_v3.Cluster_EDS,
 					},
-					EdsClusterConfig: &envoy_api_v2.Cluster_EdsClusterConfig{
-						EdsConfig: &envoy_api_v2_core.ConfigSource{
-							ConfigSourceSpecifier: &envoy_api_v2_core.ConfigSource_ApiConfigSource{
-								ApiConfigSource: &envoy_api_v2_core.ApiConfigSource{
-									ApiType:             envoy_api_v2_core.ApiConfigSource_GRPC,
-									TransportApiVersion: envoy_api_v2_core.ApiVersion_V2,
-									GrpcServices: []*envoy_api_v2_core.GrpcService{{
-										TargetSpecifier: &envoy_api_v2_core.GrpcService_EnvoyGrpc_{
-											EnvoyGrpc: &envoy_api_v2_core.GrpcService_EnvoyGrpc{
+					EdsClusterConfig: &envoy_config_cluster_v3.Cluster_EdsClusterConfig{
+						EdsConfig: &envoy_config_core_v3.ConfigSource{
+							ResourceApiVersion: envoy_config_core_v3.ApiVersion_V3,
+							ConfigSourceSpecifier: &envoy_config_core_v3.ConfigSource_ApiConfigSource{
+								ApiConfigSource: &envoy_config_core_v3.ApiConfigSource{
+									ApiType:             envoy_config_core_v3.ApiConfigSource_GRPC,
+									TransportApiVersion: envoy_config_core_v3.ApiVersion_V3,
+									GrpcServices: []*envoy_config_core_v3.GrpcService{{
+										TargetSpecifier: &envoy_config_core_v3.GrpcService_EnvoyGrpc_{
+											EnvoyGrpc: &envoy_config_core_v3.GrpcService_EnvoyGrpc{
 												ClusterName: "xds",
 											},
 										},
@@ -271,7 +272,7 @@ func TestLoadConfig(t *testing.T) {
 			want: &Config{
 				APIVersion: "v1alpha",
 				ClusterConfig: &ClusterConfig{
-					BaseConfig: &envoy_api_v2.Cluster{
+					BaseConfig: &envoy_config_cluster_v3.Cluster{
 						ConnectTimeout: durationpb.New(2 * time.Second),
 					},
 					Overrides: []*ClusterOverride{
@@ -284,8 +285,8 @@ func TestLoadConfig(t *testing.T) {
 									ClusterName: "foo:baz:h2",
 								},
 							},
-							Override: &envoy_api_v2.Cluster{
-								Http2ProtocolOptions: &envoy_api_v2_core.Http2ProtocolOptions{},
+							Override: &envoy_config_cluster_v3.Cluster{
+								Http2ProtocolOptions: &envoy_config_core_v3.Http2ProtocolOptions{},
 							},
 						},
 					},
@@ -334,7 +335,7 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 	testData := []struct {
 		name      string
 		endpoints *v1.Endpoints
-		want      []*envoy_api_v2.ClusterLoadAssignment
+		want      []*envoy_config_endpoint_v3.ClusterLoadAssignment
 	}{
 		{
 			name:      "nil",
@@ -417,62 +418,62 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 					},
 				},
 			},
-			want: []*envoy_api_v2.ClusterLoadAssignment{
+			want: []*envoy_config_endpoint_v3.ClusterLoadAssignment{
 				{
 					ClusterName: "foo:bar:debug",
-					Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{
+					Endpoints: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
 						{
-							Locality: &envoy_api_v2_core.Locality{
+							Locality: &envoy_config_core_v3.Locality{
 								Region:  "region0",
 								Zone:    "host0",
 								SubZone: "host0",
 							},
-							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-								lbEndpoint("10.0.0.1", 8080, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_HEALTHY),
-								lbEndpoint("10.0.0.2", 8080, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_DEGRADED),
+							LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+								lbEndpoint("10.0.0.1", 8080, envoy_config_core_v3.SocketAddress_TCP, envoy_config_core_v3.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.2", 8080, envoy_config_core_v3.SocketAddress_TCP, envoy_config_core_v3.HealthStatus_DEGRADED),
 							},
 						},
 					},
 				},
 				{
 					ClusterName: "foo:bar:port",
-					Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{
+					Endpoints: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
 						{
-							Locality: &envoy_api_v2_core.Locality{
+							Locality: &envoy_config_core_v3.Locality{
 								Region:  "region0",
 								Zone:    "host0",
 								SubZone: "host0",
 							},
-							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-								lbEndpoint("10.0.0.1", 1234, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_HEALTHY),
-								lbEndpoint("10.0.0.2", 1234, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_DEGRADED),
+							LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+								lbEndpoint("10.0.0.1", 1234, envoy_config_core_v3.SocketAddress_TCP, envoy_config_core_v3.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.2", 1234, envoy_config_core_v3.SocketAddress_TCP, envoy_config_core_v3.HealthStatus_DEGRADED),
 							},
 						},
 						{
-							Locality: &envoy_api_v2_core.Locality{
+							Locality: &envoy_config_core_v3.Locality{
 								Region:  "region0",
 								Zone:    "host1",
 								SubZone: "host1",
 							},
-							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-								lbEndpoint("10.0.0.3", 1234, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_HEALTHY),
-								lbEndpoint("10.0.0.4", 1234, envoy_api_v2_core.SocketAddress_TCP, envoy_api_v2_core.HealthStatus_DEGRADED),
+							LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+								lbEndpoint("10.0.0.3", 1234, envoy_config_core_v3.SocketAddress_TCP, envoy_config_core_v3.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.4", 1234, envoy_config_core_v3.SocketAddress_TCP, envoy_config_core_v3.HealthStatus_DEGRADED),
 							},
 						},
 					},
 				},
 				{
 					ClusterName: "foo:bar:udp:udp",
-					Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{
+					Endpoints: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
 						{
-							Locality: &envoy_api_v2_core.Locality{
+							Locality: &envoy_config_core_v3.Locality{
 								Region:  "region0",
 								Zone:    "host0",
 								SubZone: "host0",
 							},
-							LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-								lbEndpoint("10.0.0.1", 1234, envoy_api_v2_core.SocketAddress_UDP, envoy_api_v2_core.HealthStatus_HEALTHY),
-								lbEndpoint("10.0.0.2", 1234, envoy_api_v2_core.SocketAddress_UDP, envoy_api_v2_core.HealthStatus_DEGRADED),
+							LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+								lbEndpoint("10.0.0.1", 1234, envoy_config_core_v3.SocketAddress_UDP, envoy_config_core_v3.HealthStatus_HEALTHY),
+								lbEndpoint("10.0.0.2", 1234, envoy_config_core_v3.SocketAddress_UDP, envoy_config_core_v3.HealthStatus_DEGRADED),
 							},
 						},
 					},
@@ -543,17 +544,17 @@ func TestLocality(t *testing.T) {
 	testData := []struct {
 		localityConfig *LocalityConfig
 		input          string
-		want           *envoy_api_v2_core.Locality
+		want           *envoy_config_core_v3.Locality
 	}{
 		{
 			localityConfig: nil,
 			input:          "host0",
-			want:           &envoy_api_v2_core.Locality{},
+			want:           &envoy_config_core_v3.Locality{},
 		},
 		{
 			localityConfig: &LocalityConfig{},
 			input:          "host0",
-			want:           &envoy_api_v2_core.Locality{},
+			want:           &envoy_config_core_v3.Locality{},
 		},
 		{
 			localityConfig: &LocalityConfig{
@@ -562,7 +563,7 @@ func TestLocality(t *testing.T) {
 				},
 			},
 			input: "host0",
-			want: &envoy_api_v2_core.Locality{
+			want: &envoy_config_core_v3.Locality{
 				Region:  "region",
 				Zone:    "",
 				SubZone: "",
@@ -575,7 +576,7 @@ func TestLocality(t *testing.T) {
 				},
 			},
 			input: "host0",
-			want: &envoy_api_v2_core.Locality{
+			want: &envoy_config_core_v3.Locality{
 				Region:  "region0",
 				Zone:    "",
 				SubZone: "",
@@ -588,7 +589,7 @@ func TestLocality(t *testing.T) {
 				},
 			},
 			input: "host2",
-			want: &envoy_api_v2_core.Locality{
+			want: &envoy_config_core_v3.Locality{
 				Region:  "",
 				Zone:    "",
 				SubZone: "",
@@ -607,7 +608,7 @@ func TestLocality(t *testing.T) {
 				},
 			},
 			input: "host0",
-			want: &envoy_api_v2_core.Locality{
+			want: &envoy_config_core_v3.Locality{
 				Region:  "region0",
 				Zone:    "region0-zone0",
 				SubZone: "host0",
@@ -626,7 +627,7 @@ func TestLocality(t *testing.T) {
 				},
 			},
 			input: "host2",
-			want: &envoy_api_v2_core.Locality{
+			want: &envoy_config_core_v3.Locality{
 				Region:  "",
 				Zone:    "",
 				SubZone: "host2",

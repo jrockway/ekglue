@@ -56,7 +56,7 @@ var (
 	}, []string{"manager_name", "config_type", "resource_name"})
 )
 
-// Resource is an xDS resource, like envoy_api_v2.Cluster, etc.
+// Resource is an xDS resource, like envoy_config_cluster_v3.Cluster, etc.
 type Resource interface {
 	proto.Message
 	Validate() error
@@ -95,7 +95,7 @@ type Manager struct {
 	Name string
 	// VersionPrefix is a prefix to prepend to the version number, typically the server's pod name.
 	VersionPrefix string
-	// Type is the type of xDS resource being managed, like "type.googleapis.com/envoy.api.v2.Cluster".
+	// Type is the type of xDS resource being managed, like "XXX XXX XXX TODO XXX".
 	Type string
 	// OnAck is a function that will be called when a config is accepted or rejected.
 	OnAck func(Acknowledgment)

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -25,7 +25,7 @@ func requestClusters(version, nonce string, err *status.Status) *discovery_v3.Di
 		VersionInfo:   version,
 		ResponseNonce: nonce,
 		ErrorDetail:   err,
-		TypeUrl:       "type.googleapis.com/envoy.api.v2.Cluster",
+		TypeUrl:       "type.googleapis.com/envoy.config.cluster.v3.Cluster",
 		Node: &envoy_config_core_v3.Node{
 			Id: "unit-tests",
 		},
@@ -35,7 +35,7 @@ func requestClusters(version, nonce string, err *status.Status) *discovery_v3.Di
 func clustersFromResponse(res *discovery_v3.DiscoveryResponse) ([]string, error) {
 	var result []string
 	for _, a := range res.GetResources() {
-		cluster := new(envoy_api_v2.Cluster)
+		cluster := new(envoy_config_cluster_v3.Cluster)
 		if err := a.UnmarshalTo(cluster); err != nil {
 			return nil, err
 		}
@@ -55,7 +55,7 @@ func TestCDSFlow(t *testing.T) {
 		ackCh <- struct{}{}
 	}
 
-	if err := s.AddClusters(ctx, []*envoy_api_v2.Cluster{{Name: "a"}}); err != nil {
+	if err := s.AddClusters(ctx, []*envoy_config_cluster_v3.Cluster{{Name: "a"}}); err != nil {
 		t.Fatalf("adding cluster 'a': %v", err)
 	}
 
@@ -91,7 +91,7 @@ func TestCDSFlow(t *testing.T) {
 		t.Fatal("context done while waiting for 1st ack")
 	}
 
-	if err := s.AddClusters(ctx, []*envoy_api_v2.Cluster{{Name: "bad"}}); err != nil {
+	if err := s.AddClusters(ctx, []*envoy_config_cluster_v3.Cluster{{Name: "bad"}}); err != nil {
 		t.Fatalf("adding cluster 'bad': %v", err)
 	}
 	res, err = stream.Await()

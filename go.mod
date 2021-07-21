@@ -3,7 +3,7 @@ module github.com/jrockway/ekglue
 go 1.13
 
 require (
-	github.com/envoyproxy/go-control-plane v0.9.9-0.20210217033140-668b12f5399d
+	github.com/envoyproxy/go-control-plane v0.9.9
 	github.com/go-test/deep v1.0.5
 	github.com/google/go-cmp v0.5.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0

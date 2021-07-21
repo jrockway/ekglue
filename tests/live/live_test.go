@@ -12,8 +12,9 @@ import (
 	"testing"
 	"time"
 
-	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
+	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2" // for tests
+	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	endpointservice "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -64,26 +65,26 @@ func get(t *testing.T, url string) error {
 
 var dynamicConfig = &glue.Config{
 	ClusterConfig: &glue.ClusterConfig{
-		BaseConfig: &envoy_api_v2.Cluster{
+		BaseConfig: &envoy_config_cluster_v3.Cluster{
 			ConnectTimeout: durationpb.New(time.Second),
-			ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
-				Type: envoy_api_v2.Cluster_EDS,
+			ClusterDiscoveryType: &envoy_config_cluster_v3.Cluster_Type{
+				Type: envoy_config_cluster_v3.Cluster_EDS,
 			},
-			EdsClusterConfig: &envoy_api_v2.Cluster_EdsClusterConfig{
-				EdsConfig: &envoy_api_v2_core.ConfigSource{
-					ConfigSourceSpecifier: &envoy_api_v2_core.ConfigSource_ApiConfigSource{
-						ApiConfigSource: &envoy_api_v2_core.ApiConfigSource{
-							ApiType:             envoy_api_v2_core.ApiConfigSource_GRPC,
-							TransportApiVersion: envoy_api_v2_core.ApiVersion_V3,
-							GrpcServices: []*envoy_api_v2_core.GrpcService{{
-								TargetSpecifier: &envoy_api_v2_core.GrpcService_EnvoyGrpc_{EnvoyGrpc: &envoy_api_v2_core.GrpcService_EnvoyGrpc{
+			EdsClusterConfig: &envoy_config_cluster_v3.Cluster_EdsClusterConfig{
+				EdsConfig: &envoy_config_core_v3.ConfigSource{
+					ConfigSourceSpecifier: &envoy_config_core_v3.ConfigSource_ApiConfigSource{
+						ApiConfigSource: &envoy_config_core_v3.ApiConfigSource{
+							ApiType:             envoy_config_core_v3.ApiConfigSource_GRPC,
+							TransportApiVersion: envoy_config_core_v3.ApiVersion_V3,
+							GrpcServices: []*envoy_config_core_v3.GrpcService{{
+								TargetSpecifier: &envoy_config_core_v3.GrpcService_EnvoyGrpc_{EnvoyGrpc: &envoy_config_core_v3.GrpcService_EnvoyGrpc{
 									ClusterName: "xds",
 								}},
 							}},
 						},
 					},
 					InitialFetchTimeout: durationpb.New(time.Second),
-					ResourceApiVersion:  envoy_api_v2_core.ApiVersion_V2,
+					ResourceApiVersion:  envoy_config_core_v3.ApiVersion_V3,
 				},
 			},
 		},
@@ -91,28 +92,29 @@ var dynamicConfig = &glue.Config{
 	EndpointConfig: &glue.EndpointConfig{},
 }
 
+// This config tests that we ignore V2 requests, and that Envoy rejects our replies that mention V2.
 var dynamicV2config = &glue.Config{
 	ClusterConfig: &glue.ClusterConfig{
-		BaseConfig: &envoy_api_v2.Cluster{
+		BaseConfig: &envoy_config_cluster_v3.Cluster{
 			ConnectTimeout: durationpb.New(time.Second),
-			ClusterDiscoveryType: &envoy_api_v2.Cluster_Type{
-				Type: envoy_api_v2.Cluster_EDS,
+			ClusterDiscoveryType: &envoy_config_cluster_v3.Cluster_Type{
+				Type: envoy_config_cluster_v3.Cluster_EDS,
 			},
-			EdsClusterConfig: &envoy_api_v2.Cluster_EdsClusterConfig{
-				EdsConfig: &envoy_api_v2_core.ConfigSource{
-					ConfigSourceSpecifier: &envoy_api_v2_core.ConfigSource_ApiConfigSource{
-						ApiConfigSource: &envoy_api_v2_core.ApiConfigSource{
-							ApiType:             envoy_api_v2_core.ApiConfigSource_GRPC,
-							TransportApiVersion: envoy_api_v2_core.ApiVersion_V2,
-							GrpcServices: []*envoy_api_v2_core.GrpcService{{
-								TargetSpecifier: &envoy_api_v2_core.GrpcService_EnvoyGrpc_{EnvoyGrpc: &envoy_api_v2_core.GrpcService_EnvoyGrpc{
+			EdsClusterConfig: &envoy_config_cluster_v3.Cluster_EdsClusterConfig{
+				EdsConfig: &envoy_config_core_v3.ConfigSource{
+					ConfigSourceSpecifier: &envoy_config_core_v3.ConfigSource_ApiConfigSource{
+						ApiConfigSource: &envoy_config_core_v3.ApiConfigSource{
+							ApiType:             envoy_config_core_v3.ApiConfigSource_GRPC,
+							TransportApiVersion: envoy_config_core_v3.ApiVersion_V2, // nolint:staticcheck
+							GrpcServices: []*envoy_config_core_v3.GrpcService{{
+								TargetSpecifier: &envoy_config_core_v3.GrpcService_EnvoyGrpc_{EnvoyGrpc: &envoy_config_core_v3.GrpcService_EnvoyGrpc{
 									ClusterName: "xds",
 								}},
 							}},
 						},
 					},
 					InitialFetchTimeout: durationpb.New(time.Second),
-					ResourceApiVersion:  envoy_api_v2_core.ApiVersion_V2,
+					ResourceApiVersion:  envoy_config_core_v3.ApiVersion_V2, // nolint:staticcheck
 				},
 			},
 		},
@@ -132,19 +134,19 @@ func TestXDS(t *testing.T) {
 			configFile: "envoy-cds.yaml",
 			config: &glue.Config{
 				ClusterConfig: &glue.ClusterConfig{
-					BaseConfig: &envoy_api_v2.Cluster{
+					BaseConfig: &envoy_config_cluster_v3.Cluster{
 						ConnectTimeout: durationpb.New(time.Second),
-						DnsResolvers: []*envoy_api_v2_core.Address{{
-							Address: &envoy_api_v2_core.Address_SocketAddress{
-								SocketAddress: &envoy_api_v2_core.SocketAddress{
+						DnsResolvers: []*envoy_config_core_v3.Address{{
+							Address: &envoy_config_core_v3.Address_SocketAddress{
+								SocketAddress: &envoy_config_core_v3.SocketAddress{
 									Address: "127.0.0.1",
-									PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
+									PortSpecifier: &envoy_config_core_v3.SocketAddress_PortValue{
 										PortValue: 5353,
 									},
 								},
 							},
 						}},
-						DnsLookupFamily:     envoy_api_v2.Cluster_V4_ONLY,
+						DnsLookupFamily:     envoy_config_cluster_v3.Cluster_V4_ONLY,
 						DnsRefreshRate:      durationpb.New(100 * time.Millisecond),
 						UseTcpForDnsLookups: true,
 					},

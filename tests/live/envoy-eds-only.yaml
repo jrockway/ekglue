@@ -16,7 +16,7 @@ static_resources:
               - filters:
                     - name: envoy.http_connection_manager
                       typed_config:
-                          "@type": type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager
+                          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                           stat_prefix: test
                           route_config:
                               virtual_hosts:
@@ -31,7 +31,7 @@ static_resources:
                                         - match: { prefix: "/proxy/" }
                                           route: { cluster: "test:web:http" }
                           http_filters:
-                              - name: envoy.router
+                              - name: envoy.filters.http.router
     clusters:
         - name: xds
           connect_timeout: 1s
@@ -69,6 +69,7 @@ static_resources:
                 tcp_health_check: {}
           eds_cluster_config:
               eds_config:
+                  resource_api_version: V3
                   initial_fetch_timeout: 1s
                   api_config_source:
                       api_type: GRPC

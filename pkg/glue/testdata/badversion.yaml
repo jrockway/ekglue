@@ -1,4 +1,4 @@
-apiVersion: v2
+apiVersion: super-pre-alpha-omg
 cluster_config:
     base:
         connect_timeout: 2s

@@ -11,9 +11,10 @@ import (
 	"strconv"
 	"time"
 
-	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
+	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_config_endpoint_v3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+
 	"github.com/jrockway/ekglue/pkg/cds"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
@@ -57,7 +58,7 @@ type Matcher struct {
 }
 
 // Evaluate returns true if the matcher matches the provided objects.
-func (m *Matcher) Evaluate(cluster *envoy_api_v2.Cluster, svc *v1.Service, port *v1.ServicePort) bool {
+func (m *Matcher) Evaluate(cluster *envoy_config_cluster_v3.Cluster, svc *v1.Service, port *v1.ServicePort) bool {
 	if m == nil {
 		return false
 	}
@@ -77,7 +78,7 @@ type ClusterOverride struct {
 	// Match specifies a cluster to match; multiple items are OR'd.
 	Match []*Matcher
 	// Configuration to override if a matcher matches.
-	Override *envoy_api_v2.Cluster
+	Override *envoy_config_cluster_v3.Cluster
 	// If true, suppress the cluster completely.
 	Suppress bool
 }
@@ -94,7 +95,7 @@ func (o *ClusterOverride) UnmarshalJSON(b []byte) error {
 	o.Match = tmp.Match
 	o.Suppress = tmp.Suppress
 	if len(tmp.Override) > 0 {
-		base := &envoy_api_v2.Cluster{}
+		base := &envoy_config_cluster_v3.Cluster{}
 		if err := protojson.Unmarshal(tmp.Override, base); err != nil {
 			return fmt.Errorf("ClusterOverride: unmarshal Override: %w", err)
 		}
@@ -115,7 +116,7 @@ func (o *ClusterOverride) UnmarshalJSON(b []byte) error {
 // ClusterConfig configures creation of Envoy clusters from Kubernetes services.
 type ClusterConfig struct {
 	// The base configuration that should be used for all clusters.
-	BaseConfig *envoy_api_v2.Cluster `json:"base"`
+	BaseConfig *envoy_config_cluster_v3.Cluster `json:"base"`
 	// Any rule-based overrides.
 	Overrides []*ClusterOverride `json:"overrides"`
 }
@@ -130,7 +131,7 @@ func (c *ClusterConfig) UnmarshalJSON(b []byte) error {
 	}
 	c.Overrides = tmp.Overrides
 
-	base := &envoy_api_v2.Cluster{}
+	base := &envoy_config_cluster_v3.Cluster{}
 	if err := protojson.Unmarshal(tmp.BaseConfig, base); err != nil {
 		return fmt.Errorf("ClusterConfig: unmarshal BaseConfig %s: %w", tmp.BaseConfig, err)
 	}
@@ -178,7 +179,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		ClusterConfig: &ClusterConfig{
-			BaseConfig: &envoy_api_v2.Cluster{
+			BaseConfig: &envoy_config_cluster_v3.Cluster{
 				ConnectTimeout: durationpb.New(time.Second),
 			},
 		},
@@ -212,9 +213,9 @@ func LoadConfig(filename string) (*Config, error) {
 }
 
 // Base returns a deep copy of the base cluster configuration.
-func (c *ClusterConfig) GetBaseConfig() *envoy_api_v2.Cluster {
+func (c *ClusterConfig) GetBaseConfig() *envoy_config_cluster_v3.Cluster {
 	raw := proto.Clone(c.BaseConfig)
-	cluster, ok := raw.(*envoy_api_v2.Cluster)
+	cluster, ok := raw.(*envoy_config_cluster_v3.Cluster)
 	if !ok {
 		zap.L().Fatal("internal error: couldn't clone ClusterConfig.BaseConfig")
 	}
@@ -223,7 +224,7 @@ func (c *ClusterConfig) GetBaseConfig() *envoy_api_v2.Cluster {
 
 // ApplyOverride returns the cluster after applying any configured overrides.  It will return nil if
 // the cluster is suppressed.
-func (c *ClusterConfig) ApplyOverride(cluster *envoy_api_v2.Cluster, svc *v1.Service, port *v1.ServicePort) *envoy_api_v2.Cluster {
+func (c *ClusterConfig) ApplyOverride(cluster *envoy_config_cluster_v3.Cluster, svc *v1.Service, port *v1.ServicePort) *envoy_config_cluster_v3.Cluster {
 	for _, o := range c.Overrides {
 		var match bool
 		for _, m := range o.Match {
@@ -245,27 +246,27 @@ func (c *ClusterConfig) ApplyOverride(cluster *envoy_api_v2.Cluster, svc *v1.Ser
 	return cluster
 }
 
-func singleTargetLoadAssignment(cluster, hostname string, port int32, protocol envoy_api_v2_core.SocketAddress_Protocol) *envoy_api_v2.ClusterLoadAssignment {
-	return &envoy_api_v2.ClusterLoadAssignment{
+func singleTargetLoadAssignment(cluster, hostname string, port int32, protocol envoy_config_core_v3.SocketAddress_Protocol) *envoy_config_endpoint_v3.ClusterLoadAssignment {
+	return &envoy_config_endpoint_v3.ClusterLoadAssignment{
 		ClusterName: cluster,
-		Endpoints: []*envoy_api_v2_endpoint.LocalityLbEndpoints{{
-			LbEndpoints: []*envoy_api_v2_endpoint.LbEndpoint{
-				lbEndpoint(hostname, port, protocol, envoy_api_v2_core.HealthStatus_UNKNOWN)},
+		Endpoints: []*envoy_config_endpoint_v3.LocalityLbEndpoints{{
+			LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
+				lbEndpoint(hostname, port, protocol, envoy_config_core_v3.HealthStatus_UNKNOWN)},
 		}},
 	}
 }
 
-func lbEndpoint(hostname string, port int32, protocol envoy_api_v2_core.SocketAddress_Protocol, health envoy_api_v2_core.HealthStatus) *envoy_api_v2_endpoint.LbEndpoint {
-	return &envoy_api_v2_endpoint.LbEndpoint{
+func lbEndpoint(hostname string, port int32, protocol envoy_config_core_v3.SocketAddress_Protocol, health envoy_config_core_v3.HealthStatus) *envoy_config_endpoint_v3.LbEndpoint {
+	return &envoy_config_endpoint_v3.LbEndpoint{
 		HealthStatus: health,
-		HostIdentifier: &envoy_api_v2_endpoint.LbEndpoint_Endpoint{
-			Endpoint: &envoy_api_v2_endpoint.Endpoint{
-				Address: &envoy_api_v2_core.Address{
-					Address: &envoy_api_v2_core.Address_SocketAddress{
-						SocketAddress: &envoy_api_v2_core.SocketAddress{
+		HostIdentifier: &envoy_config_endpoint_v3.LbEndpoint_Endpoint{
+			Endpoint: &envoy_config_endpoint_v3.Endpoint{
+				Address: &envoy_config_core_v3.Address{
+					Address: &envoy_config_core_v3.Address_SocketAddress{
+						SocketAddress: &envoy_config_core_v3.SocketAddress{
 							Protocol: protocol,
 							Address:  hostname,
-							PortSpecifier: &envoy_api_v2_core.SocketAddress_PortValue{
+							PortSpecifier: &envoy_config_core_v3.SocketAddress_PortValue{
 								PortValue: uint32(port),
 							},
 						},
@@ -276,12 +277,12 @@ func lbEndpoint(hostname string, port int32, protocol envoy_api_v2_core.SocketAd
 	}
 }
 
-func (c *ClusterConfig) isEDS(cl *envoy_api_v2.Cluster) bool {
+func (c *ClusterConfig) isEDS(cl *envoy_config_cluster_v3.Cluster) bool {
 	dtype := cl.GetClusterDiscoveryType()
 	if dtype == nil {
 		return false
 	}
-	return cl.GetType() == envoy_api_v2.Cluster_EDS
+	return cl.GetType() == envoy_config_cluster_v3.Cluster_EDS
 }
 
 // nameCluster maps a port object from a service or endpoint to a name.  For EDS, the cluster and
@@ -289,16 +290,16 @@ func (c *ClusterConfig) isEDS(cl *envoy_api_v2.Cluster) bool {
 // however, because you can have endpoints without services, and we never create a cluster for
 // those.  We also return the Envoy protocol of the port here, because it's convenient, not because
 // it's good design.
-func nameCluster(namespace, serviceOrEndpoint, portName string, portNumber int32, portProtocol v1.Protocol) (string, envoy_api_v2_core.SocketAddress_Protocol) {
+func nameCluster(namespace, serviceOrEndpoint, portName string, portNumber int32, portProtocol v1.Protocol) (string, envoy_config_core_v3.SocketAddress_Protocol) {
 	var protoSuffix string
-	var envoyProtocol envoy_api_v2_core.SocketAddress_Protocol
+	var envoyProtocol envoy_config_core_v3.SocketAddress_Protocol
 	switch portProtocol {
 	case v1.ProtocolTCP, "":
 		protoSuffix = ""
-		envoyProtocol = envoy_api_v2_core.SocketAddress_TCP
+		envoyProtocol = envoy_config_core_v3.SocketAddress_TCP
 	case v1.ProtocolUDP:
 		protoSuffix = ":udp"
-		envoyProtocol = envoy_api_v2_core.SocketAddress_UDP
+		envoyProtocol = envoy_config_core_v3.SocketAddress_UDP
 	case v1.ProtocolSCTP:
 		// Envoy doesn't support SCTP, so neither do we.  See Envoy issue
 		// https://github.com/envoyproxy/envoy/issues/9430
@@ -314,14 +315,14 @@ func nameCluster(namespace, serviceOrEndpoint, portName string, portNumber int32
 
 // ClustersFromService translates a Kubernetes service into a set of Envoy clusters according to the
 // config (1 cluster per service port).
-func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Cluster {
-	var result []*envoy_api_v2.Cluster
+func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_config_cluster_v3.Cluster {
+	var result []*envoy_config_cluster_v3.Cluster
 	if svc == nil {
 		return nil
 	}
 	for _, port := range svc.Spec.Ports {
 		cl := c.GetBaseConfig()
-		var protocol envoy_api_v2_core.SocketAddress_Protocol
+		var protocol envoy_config_core_v3.SocketAddress_Protocol
 		cl.Name, protocol = nameCluster(svc.GetNamespace(), svc.GetName(), port.Name, port.Port, port.Protocol)
 		if cl.Name == "" {
 			// Ignore clusters that we can't name, probably because they use an unsupported protcol.
@@ -333,8 +334,8 @@ func (c *ClusterConfig) ClustersFromService(svc *v1.Service) []*envoy_api_v2.Clu
 		}
 		if !c.isEDS(cl) {
 			if cl.ClusterDiscoveryType == nil {
-				cl.ClusterDiscoveryType = &envoy_api_v2.Cluster_Type{
-					Type: envoy_api_v2.Cluster_STRICT_DNS,
+				cl.ClusterDiscoveryType = &envoy_config_cluster_v3.Cluster_Type{
+					Type: envoy_config_cluster_v3.Cluster_STRICT_DNS,
 				}
 			}
 			cl.LoadAssignment = singleTargetLoadAssignment(cl.Name, fmt.Sprintf("%s.%s.svc.cluster.local.", svc.GetName(), svc.GetNamespace()), port.Port, protocol)
@@ -365,8 +366,8 @@ func extractLabel(node *v1.Node, hostname string, rule *Field) string {
 // LocalityFromHost returns a locality record for the provided host, looking in the cache.Store for
 // a v1.Node object that matches the hostname.  It returns an empty, non-nil, Locality if there is
 // no way to determine the actual locality.
-func (l *LocalityConfig) LocalityFromHost(hosts cache.Store, hostname string) *envoy_api_v2_core.Locality {
-	result := new(envoy_api_v2_core.Locality)
+func (l *LocalityConfig) LocalityFromHost(hosts cache.Store, hostname string) *envoy_config_core_v3.Locality {
+	result := new(envoy_config_core_v3.Locality)
 	if l == nil || l.RegionFrom == nil && l.ZoneFrom == nil && l.SubZoneFrom == nil {
 		return result
 	}
@@ -410,7 +411,7 @@ func (l *LocalityConfig) LocalitiesAsYAML(nodes cache.Store) ([]byte, error) {
 	jsonm := &protojson.MarshalOptions{EmitUnpopulated: false}
 	for _, obj := range nodes.List() {
 		node, ok := obj.(*v1.Node)
-		locality := &envoy_api_v2_core.Locality{}
+		locality := &envoy_config_core_v3.Locality{}
 		if ok {
 			locality = l.LocalityFromHost(nodes, node.GetName())
 		}
@@ -433,19 +434,19 @@ func (l *LocalityConfig) LocalitiesAsYAML(nodes cache.Store) ([]byte, error) {
 
 // LoadAssignmentFromEndpoints translates a Kubernetes endpoints object into a set of Envoy
 // ClusterLoadAssignments.
-func (c *EndpointConfig) LoadAssignmentsFromEndpoints(nodeStore cache.Store, eps *v1.Endpoints) []*envoy_api_v2.ClusterLoadAssignment {
+func (c *EndpointConfig) LoadAssignmentsFromEndpoints(nodeStore cache.Store, eps *v1.Endpoints) []*envoy_config_endpoint_v3.ClusterLoadAssignment {
 	if eps == nil {
 		return nil
 	}
-	endpointsByClusterByHost := make(map[string]map[string][]*envoy_api_v2_endpoint.LbEndpoint)
-	addEndpoint := func(addr v1.EndpointAddress, cluster string, port int32, protocol envoy_api_v2_core.SocketAddress_Protocol, health envoy_api_v2_core.HealthStatus) {
+	endpointsByClusterByHost := make(map[string]map[string][]*envoy_config_endpoint_v3.LbEndpoint)
+	addEndpoint := func(addr v1.EndpointAddress, cluster string, port int32, protocol envoy_config_core_v3.SocketAddress_Protocol, health envoy_config_core_v3.HealthStatus) {
 		host := ""
 		if addr.NodeName != nil {
 			host = *addr.NodeName
 		}
 		endpointsByHost, ok := endpointsByClusterByHost[cluster]
 		if !ok {
-			endpointsByHost = make(map[string][]*envoy_api_v2_endpoint.LbEndpoint)
+			endpointsByHost = make(map[string][]*envoy_config_endpoint_v3.LbEndpoint)
 			endpointsByClusterByHost[cluster] = endpointsByHost
 		}
 		endpointsByHost[host] = append(endpointsByHost[host], lbEndpoint(addr.IP, port, protocol, health))
@@ -460,25 +461,25 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(nodeStore cache.Store, eps
 				continue
 			}
 			for _, addr := range ss.Addresses {
-				addEndpoint(addr, cluster, port.Port, protocol, envoy_api_v2_core.HealthStatus_HEALTHY)
+				addEndpoint(addr, cluster, port.Port, protocol, envoy_config_core_v3.HealthStatus_HEALTHY)
 			}
 			if c.IncludeNotReady {
 				for _, addr := range ss.NotReadyAddresses {
-					addEndpoint(addr, cluster, port.Port, protocol, envoy_api_v2_core.HealthStatus_DEGRADED)
+					addEndpoint(addr, cluster, port.Port, protocol, envoy_config_core_v3.HealthStatus_DEGRADED)
 				}
 			}
 		}
 	}
 
-	var result []*envoy_api_v2.ClusterLoadAssignment
+	var result []*envoy_config_endpoint_v3.ClusterLoadAssignment
 	for cluster, endpointsByHost := range endpointsByClusterByHost {
-		var localityEndpoints []*envoy_api_v2_endpoint.LocalityLbEndpoints
+		var localityEndpoints []*envoy_config_endpoint_v3.LocalityLbEndpoints
 		for host, endpoints := range endpointsByHost {
 			locality := c.Locality.LocalityFromHost(nodeStore, host)
 			sort.Slice(endpoints, func(i, j int) bool {
 				return endpoints[i].String() < endpoints[j].String()
 			})
-			localityEndpoints = append(localityEndpoints, &envoy_api_v2_endpoint.LocalityLbEndpoints{
+			localityEndpoints = append(localityEndpoints, &envoy_config_endpoint_v3.LocalityLbEndpoints{
 				Locality:    locality,
 				LbEndpoints: endpoints,
 			})
@@ -486,7 +487,7 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(nodeStore cache.Store, eps
 		sort.Slice(localityEndpoints, func(i, j int) bool {
 			return localityEndpoints[i].Locality.String() < localityEndpoints[j].Locality.String()
 		})
-		result = append(result, &envoy_api_v2.ClusterLoadAssignment{
+		result = append(result, &envoy_config_endpoint_v3.ClusterLoadAssignment{
 			ClusterName: cluster,
 			Endpoints:   localityEndpoints,
 		})
@@ -610,7 +611,7 @@ func (cs *ClusterStore) GetByKey(key string) (item interface{}, exists bool, err
 func (cs *ClusterStore) Replace(objs []interface{}, _ string) error {
 	ctx, c := startOp("services", "replace")
 	defer c()
-	var clusters []*envoy_api_v2.Cluster
+	var clusters []*envoy_config_cluster_v3.Cluster
 	for _, obj := range objs {
 		svc, ok := obj.(*v1.Service)
 		if !ok {
@@ -710,7 +711,7 @@ func (es *EndpointStore) GetByKey(key string) (item interface{}, exists bool, er
 func (es *EndpointStore) Replace(objs []interface{}, _ string) error {
 	ctx, c := startOp("endpoints", "replace")
 	defer c()
-	var as []*envoy_api_v2.ClusterLoadAssignment
+	var as []*envoy_config_endpoint_v3.ClusterLoadAssignment
 	for _, obj := range objs {
 		eps, ok := obj.(*v1.Endpoints)
 		if !ok {
