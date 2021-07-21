@@ -95,7 +95,7 @@ type Manager struct {
 	Name string
 	// VersionPrefix is a prefix to prepend to the version number, typically the server's pod name.
 	VersionPrefix string
-	// Type is the type of xDS resource being managed, like "XXX XXX XXX TODO XXX".
+	// Type is the type of xDS resource being managed, like "type.googleapis.com/envoy.config.cluster.v3.Cluster".
 	Type string
 	// OnAck is a function that will be called when a config is accepted or rejected.
 	OnAck func(Acknowledgment)
