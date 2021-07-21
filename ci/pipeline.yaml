@@ -21,7 +21,7 @@ resources:
       icon: docker
       source:
           repository: envoyproxy/envoy
-          tag: v1.15-latest
+          tag: latest
     - name: ekglue-version
       type: semver
       icon: counter
