@@ -193,8 +193,8 @@ github.com/imdario/mergo v0.3.5/go.mod h1:2EnlNZ0deacrJVfApfmtdGgDfMuh/nq6Ok1EcJ
 github.com/jessevdk/go-flags v1.5.0 h1:1jKYvbxEjfUl0fmqTCOfonvskHHXMjBySTLW4y9LFvc=
 github.com/jessevdk/go-flags v1.5.0/go.mod h1:Fw0T6WPc1dYxT4mKEZRfG5kJhaTDP9pj1c2EWnYs/m4=
 github.com/jpillora/backoff v1.0.0/go.mod h1:J/6gKK9jxlEcS3zixgDgUAsiuZ7yrSoa/FX5e0EB2j4=
-github.com/jrockway/opinionated-server v0.0.22-0.20211204200521-de4f0aa6f644 h1:Qxz/UfM2/puQtz8RydiSvTUNQxBDnUKoSr1asImDd9o=
-github.com/jrockway/opinionated-server v0.0.22-0.20211204200521-de4f0aa6f644/go.mod h1:r9rJyjiI6lAlzr3dEqSDFm7o9DG78t6QOJzLCyy7Th0=
+github.com/jrockway/opinionated-server v0.0.22 h1:Hs0fhlubaoHEolOjFR8R+aGp5E09vTESuQN2x0X3UQQ=
+github.com/jrockway/opinionated-server v0.0.22/go.mod h1:r9rJyjiI6lAlzr3dEqSDFm7o9DG78t6QOJzLCyy7Th0=
 github.com/json-iterator/go v1.1.6/go.mod h1:+SdeFBvtyEkXs7REEP0seUULqWtbJapLOCVDaaPEHmU=
 github.com/json-iterator/go v1.1.10/go.mod h1:KdQUCv79m/52Kvf8AW2vK1V8akMuk1QjK/uOdHXbAo4=
 github.com/json-iterator/go v1.1.11 h1:uVUAXhF2To8cbw/3xN3pxj6kk7TYKs98NIrTqPlMWAQ=
