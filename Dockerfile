@@ -9,7 +9,7 @@ RUN go mod download
 COPY . /ekglue/
 RUN CGO_ENABLED=0 go install ./cmd/ekglue
 
-FROM gcr.io/distroless/static-debian10
+FROM gcr.io/distroless/static-debian11
 WORKDIR /
 COPY --from=build /bin/grpc_health_probe /bin/grpc_health_probe
 COPY --from=build /go/bin/ekglue /go/bin/ekglue
