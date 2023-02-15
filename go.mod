@@ -10,7 +10,7 @@ require (
 	github.com/jrockway/opinionated-server v0.0.22
 	github.com/miekg/dns v1.1.43
 	github.com/opentracing/opentracing-go v1.2.0
-	github.com/prometheus/client_golang v1.11.0
+	github.com/prometheus/client_golang v1.11.1
 	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/uber/jaeger-client-go v2.29.1+incompatible
 	go.uber.org/zap v1.19.1
