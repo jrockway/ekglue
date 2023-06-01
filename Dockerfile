@@ -1,4 +1,4 @@
-FROM golang:1.17 AS build
+FROM golang:1.20 AS build
 WORKDIR /ekglue
 ADD  https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.1/grpc_health_probe-linux-amd64 /bin/grpc_health_probe
 RUN chmod a+x /bin/grpc_health_probe
