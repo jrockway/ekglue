@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	v1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -48,23 +49,23 @@ func TestListers(t *testing.T) {
 			},
 		},
 	}
-	list = &v1.EndpointsList{
-		Items: []v1.Endpoints{{}},
+	list = &discoveryv1.EndpointSliceList{
+		Items: []discoveryv1.EndpointSlice{{}},
 	}
-	if err := cw.ListEndpoints(store); err != nil {
-		t.Error("expected list to succeed")
+	if err := cw.ListEndpointSlices(store); err != nil {
+		t.Errorf("ListEndpointSlices: %v", err)
 	}
 	list = &v1.ServiceList{
 		Items: []v1.Service{{}},
 	}
 	if err := cw.ListServices(store); err != nil {
-		t.Error("expected list to succeed")
+		t.Errorf("ListServices: %v", err)
 	}
 	list = &v1.NodeList{
 		Items: []v1.Node{{}},
 	}
 	if err := cw.ListNodes(store); err != nil {
-		t.Error("expected list to succeed")
+		t.Errorf("ListNodes: %v", err)
 	}
 }
 
@@ -140,18 +141,18 @@ func TestWatchers(t *testing.T) {
 		},
 		{
 			run: func(ctx context.Context, cw *ClusterWatcher, s cache.Store) {
-				cw.WatchEndpoints(ctx, s)
+				cw.WatchEndpointSlices(ctx, s)
 			},
 			list: &v1.NodeList{},
 			add: []runtime.Object{
-				&v1.Endpoints{
+				&discoveryv1.EndpointSlice{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "default",
-						Name:      "service",
+						Name:      "service-ff00abcd",
 					},
 				},
 			},
-			want: []string{"default/service"},
+			want: []string{"default/service-ff00abcd"},
 		},
 	}
 	for i, test := range testData {

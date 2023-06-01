@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	v1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/yaml"
@@ -329,12 +330,12 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func ptr[T any](v T) *T { return &v }
+
 func TestLoadAssignmentFromEndpoints(t *testing.T) {
-	node0 := "host0"
-	node1 := "host1"
 	testData := []struct {
 		name      string
-		endpoints *v1.Endpoints
+		endpoints []*discoveryv1.EndpointSlice
 		want      []*envoy_config_endpoint_v3.ClusterLoadAssignment
 	}{
 		{
@@ -344,76 +345,89 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 		},
 		{
 			name:      "empty",
-			endpoints: &v1.Endpoints{},
+			endpoints: []*discoveryv1.EndpointSlice{{}},
 			want:      nil,
 		},
 		{
 			name: "ready_and_notready",
-			endpoints: &v1.Endpoints{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "v1",
-					Kind:       "Endpoints",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "foo",
-					Name:      "bar",
-				},
-				Subsets: []v1.EndpointSubset{
-					{
-						Ports: []v1.EndpointPort{
-							{
-								Name:     "port",
-								Port:     1234,
-								Protocol: v1.ProtocolTCP,
-							},
-							{
-								Name:     "debug",
-								Port:     8080,
-								Protocol: v1.ProtocolTCP,
-							},
-							{
-								Name:     "udp",
-								Port:     1234,
-								Protocol: v1.ProtocolUDP,
-							},
-							{
-								Name:     "sctp",
-								Port:     1234,
-								Protocol: v1.ProtocolSCTP,
-							},
-						},
-						Addresses: []v1.EndpointAddress{
-							{
-								NodeName: &node0,
-								IP:       "10.0.0.1",
-							},
-						},
-						NotReadyAddresses: []v1.EndpointAddress{
-							{
-								NodeName: &node0,
-								IP:       "10.0.0.2",
-							},
+			endpoints: []*discoveryv1.EndpointSlice{
+				{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: discoveryv1.SchemeGroupVersion.String(),
+						Kind:       "EndpointSlice",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "foo",
+						Name:      "bar-v2drk",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: "bar",
 						},
 					},
-					{
-						Ports: []v1.EndpointPort{
-							{
-								Name:     "port",
-								Port:     1234,
-								Protocol: v1.ProtocolTCP,
-							},
+					Ports: []discoveryv1.EndpointPort{
+						{
+							Name:     ptr("port"),
+							Port:     ptr(int32(1234)),
+							Protocol: ptr(v1.ProtocolTCP),
 						},
-						Addresses: []v1.EndpointAddress{
-							{
-								NodeName: &node1,
-								IP:       "10.0.0.3",
-							},
+						{
+							Name:     ptr("debug"),
+							Port:     ptr(int32(8080)),
+							Protocol: ptr(v1.ProtocolTCP),
 						},
-						NotReadyAddresses: []v1.EndpointAddress{
-							{
-								NodeName: &node1,
-								IP:       "10.0.0.4",
-							},
+						{
+							Name:     ptr("udp"),
+							Port:     ptr(int32(1234)),
+							Protocol: ptr(v1.ProtocolUDP),
+						},
+						{
+							Name:     ptr("sctp"),
+							Port:     ptr(int32(1234)),
+							Protocol: ptr(v1.ProtocolSCTP),
+						},
+					},
+					Endpoints: []discoveryv1.Endpoint{
+						{
+							Addresses:  []string{"10.0.0.1"},
+							Conditions: discoveryv1.EndpointConditions{Ready: ptr(true)},
+							NodeName:   ptr("host0"),
+						},
+						{
+							Addresses:  []string{"10.0.0.2"},
+							Conditions: discoveryv1.EndpointConditions{Ready: ptr(false)},
+							NodeName:   ptr("host0"),
+						},
+					},
+				},
+
+				{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: discoveryv1.SchemeGroupVersion.String(),
+						Kind:       "EndpointSlice",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "foo",
+						Name:      "bar-rs32p",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: "bar",
+						},
+					},
+					Ports: []discoveryv1.EndpointPort{
+						{
+							Name:     ptr("port"),
+							Port:     ptr(int32(1234)),
+							Protocol: ptr(v1.ProtocolTCP),
+						},
+					},
+					Endpoints: []discoveryv1.Endpoint{
+						{
+							Addresses:  []string{"10.0.0.3"},
+							Conditions: discoveryv1.EndpointConditions{Ready: ptr(true)},
+							NodeName:   ptr("host1"),
+						},
+						{
+							Addresses:  []string{"10.0.0.4"},
+							Conditions: discoveryv1.EndpointConditions{Ready: ptr(false)},
+							NodeName:   ptr("host1"),
 						},
 					},
 				},
@@ -532,7 +546,7 @@ func TestLoadAssignmentFromEndpoints(t *testing.T) {
 
 	for _, test := range testData {
 		t.Run(test.name, func(t *testing.T) {
-			got := cfg.EndpointConfig.LoadAssignmentsFromEndpoints(nodes, test.endpoints)
+			got := cfg.EndpointConfig.LoadAssignmentsFromEndpointSlices(nodes, test.endpoints)
 			if diff := cmp.Diff(got, test.want, protocmp.Transform()); diff != "" {
 				t.Errorf("endpoints:\n  got: %v\n want: %v\n diff: %v", got, test.want, diff)
 			}
@@ -783,45 +797,43 @@ func TestAllCacheMethods(t *testing.T) {
 	assertClusters()
 
 	es := cfg.EndpointConfig.Store(nil, xds)
-	ea, eb := &v1.Endpoints{
+	ea := &discoveryv1.EndpointSlice{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: discoveryv1.SchemeGroupVersion.String(),
+			Kind:       "EndpointSlice",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "test",
-			Name:      "a",
-		},
-		Subsets: []v1.EndpointSubset{
-			{
-				Addresses: []v1.EndpointAddress{
-					{
-						IP: "1.2.3.4",
-					},
-				},
-				Ports: []v1.EndpointPort{
-					{
-						Name: "a",
-					},
-				},
+			Name:      "a-v2drk",
+			Labels: map[string]string{
+				discoveryv1.LabelServiceName: "a",
 			},
 		},
-	}, &v1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "test",
-			Name:      "b",
-		},
-		Subsets: []v1.EndpointSubset{
-			{
-				Addresses: []v1.EndpointAddress{
-					{
-						IP: "1.2.3.4",
-					},
-				},
-				Ports: []v1.EndpointPort{
-					{
-						Name: "b",
-					},
-				},
-			},
-		},
+		Ports: []discoveryv1.EndpointPort{{
+			Name: ptr("a"),
+			Port: ptr(int32(1234)),
+		}},
+		Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"1.2.3.4"}}},
 	}
+	eb := &discoveryv1.EndpointSlice{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: discoveryv1.SchemeGroupVersion.String(),
+			Kind:       "EndpointSlice",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "test",
+			Name:      "b-v2drk",
+			Labels: map[string]string{
+				discoveryv1.LabelServiceName: "b",
+			},
+		},
+		Ports: []discoveryv1.EndpointPort{{
+			Name: ptr("b"),
+			Port: ptr(int32(1234)),
+		}},
+		Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"1.2.3.4"}}},
+	}
+
 	assertEndpoints := func(want ...string) {
 		t.Helper()
 		sort.Strings(want)
@@ -848,32 +860,25 @@ func TestAllCacheMethods(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertEndpoints("test:a:a", "test:b:b")
-	eb2 := &v1.Endpoints{
+	eb2 := &discoveryv1.EndpointSlice{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: discoveryv1.SchemeGroupVersion.String(),
+			Kind:       "EndpointSlice",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "test",
-			Name:      "b",
-		},
-		Subsets: []v1.EndpointSubset{
-			{
-				Addresses: []v1.EndpointAddress{
-					{
-						IP: "1.2.3.4",
-					},
-				},
-				Ports: []v1.EndpointPort{
-					{
-						Name: "c",
-					},
-				},
+			Name:      "b-v2drk",
+			Labels: map[string]string{
+				discoveryv1.LabelServiceName: "b",
 			},
 		},
+		Ports: []discoveryv1.EndpointPort{{
+			Name: ptr("c"),
+			Port: ptr(int32(1234)),
+		}},
+		Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"1.2.3.4"}}},
 	}
 	if err := es.Update(eb2); err != nil {
-		t.Fatal(err)
-	}
-	// This is bug #7 in action.
-	assertEndpoints("test:a:a", "test:b:b", "test:b:c")
-	if err := es.Delete(eb); err != nil {
 		t.Fatal(err)
 	}
 	assertEndpoints("test:a:a", "test:b:c")

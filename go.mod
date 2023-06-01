@@ -13,6 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.15.1
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
 	go.uber.org/zap v1.24.0
+	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230530153820-e85fd2cbaebc
 	google.golang.org/grpc v1.55.0
 	google.golang.org/protobuf v1.30.0

@@ -102,8 +102,8 @@ func main() {
 		}
 	}()
 	go func() {
-		if err := watcher.WatchEndpoints(context.Background(), cfg.EndpointConfig.Store(ns, svc)); err != nil {
-			zap.L().Fatal("endpoints watch unexpectedly exited", zap.Error(err))
+		if err := watcher.WatchEndpointSlices(context.Background(), cfg.EndpointConfig.Store(ns, svc)); err != nil {
+			zap.L().Fatal("endpointslice watch unexpectedly exited", zap.Error(err))
 		}
 	}()
 

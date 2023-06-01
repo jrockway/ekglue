@@ -9,11 +9,13 @@ import (
 	"io/ioutil"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_config_endpoint_v3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	"golang.org/x/exp/maps"
 
 	// for config loading
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
@@ -28,6 +30,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	v1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/yaml"
 )
@@ -293,7 +297,7 @@ func (c *ClusterConfig) isEDS(cl *envoy_config_cluster_v3.Cluster) bool {
 // however, because you can have endpoints without services, and we never create a cluster for
 // those.  We also return the Envoy protocol of the port here, because it's convenient, not because
 // it's good design.
-func nameCluster(namespace, serviceOrEndpoint, portName string, portNumber int32, portProtocol v1.Protocol) (string, envoy_config_core_v3.SocketAddress_Protocol) {
+func nameCluster(namespace, service, portName string, portNumber int32, portProtocol v1.Protocol) (string, envoy_config_core_v3.SocketAddress_Protocol) {
 	var protoSuffix string
 	var envoyProtocol envoy_config_core_v3.SocketAddress_Protocol
 	switch portProtocol {
@@ -313,7 +317,7 @@ func nameCluster(namespace, serviceOrEndpoint, portName string, portNumber int32
 	if portName == "" {
 		portName = strconv.Itoa(int(portNumber))
 	}
-	return fmt.Sprintf("%s:%s:%s%s", namespace, serviceOrEndpoint, portName, protoSuffix), envoyProtocol
+	return fmt.Sprintf("%s:%s:%s%s", namespace, service, portName, protoSuffix), envoyProtocol
 }
 
 // ClustersFromService translates a Kubernetes service into a set of Envoy clusters according to the
@@ -437,53 +441,57 @@ func (l *LocalityConfig) LocalitiesAsYAML(nodes cache.Store) ([]byte, error) {
 
 // LoadAssignmentFromEndpoints translates a Kubernetes endpoints object into a set of Envoy
 // ClusterLoadAssignments.
-func (c *EndpointConfig) LoadAssignmentsFromEndpoints(nodeStore cache.Store, eps *v1.Endpoints) []*envoy_config_endpoint_v3.ClusterLoadAssignment {
-	if eps == nil {
+func (c *EndpointConfig) LoadAssignmentsFromEndpointSlices(nodeStore cache.Store, endpointSlices []*discoveryv1.EndpointSlice) []*envoy_config_endpoint_v3.ClusterLoadAssignment {
+	if endpointSlices == nil {
 		return nil
 	}
-	endpointsByClusterByHost := make(map[string]map[string][]*envoy_config_endpoint_v3.LbEndpoint)
-	addEndpoint := func(addr v1.EndpointAddress, cluster string, port int32, protocol envoy_config_core_v3.SocketAddress_Protocol, health envoy_config_core_v3.HealthStatus) {
-		host := ""
-		if addr.NodeName != nil {
-			host = *addr.NodeName
-		}
-		endpointsByHost, ok := endpointsByClusterByHost[cluster]
-		if !ok {
-			endpointsByHost = make(map[string][]*envoy_config_endpoint_v3.LbEndpoint)
-			endpointsByClusterByHost[cluster] = endpointsByHost
-		}
-		endpointsByHost[host] = append(endpointsByHost[host], lbEndpoint(addr.IP, port, protocol, health))
-	}
 
-	for _, ss := range eps.Subsets {
-		for _, port := range ss.Ports {
-			cluster, protocol := nameCluster(eps.GetNamespace(), eps.GetName(), port.Name, port.Port, port.Protocol)
-			if cluster == "" {
-				// Ignore clusters that we can't name, probably because they use an
-				// unsupported protocol.
+	endpointsByClusterByNode := make(map[string]map[string][]*envoy_config_endpoint_v3.LbEndpoint)
+	for _, es := range endpointSlices {
+		svc := esService(es)
+		for _, port := range es.Ports {
+			if port.Port == nil {
+				// Ignore unspecified ports.
 				continue
 			}
-			for _, addr := range ss.Addresses {
-				addEndpoint(addr, cluster, port.Port, protocol, envoy_config_core_v3.HealthStatus_HEALTHY)
+			portNum := *port.Port
+			portName := withDefault(port.Name, "")
+			portProto := withDefault(port.Protocol, "TCP")
+			cluster, protocol := nameCluster(svc.Namespace, svc.Name, portName, portNum, portProto)
+			if cluster == "" {
+				// Ignore clusters that we can't name, probably because they use an unsupported protocol.
+				continue
 			}
-			if c.IncludeNotReady {
-				for _, addr := range ss.NotReadyAddresses {
-					addEndpoint(addr, cluster, port.Port, protocol, envoy_config_core_v3.HealthStatus_DEGRADED)
+			endpointsByNode, ok := endpointsByClusterByNode[cluster]
+			if !ok {
+				endpointsByNode = make(map[string][]*envoy_config_endpoint_v3.LbEndpoint)
+				endpointsByClusterByNode[cluster] = endpointsByNode
+			}
+			for _, ep := range es.Endpoints {
+				health := envoy_config_core_v3.HealthStatus_HEALTHY
+				if !withDefault(ep.Conditions.Ready, true) {
+					if !c.IncludeNotReady {
+						continue
+					}
+					health = envoy_config_core_v3.HealthStatus_DEGRADED
+				}
+				node := withDefault(ep.NodeName, "")
+				for _, addr := range ep.Addresses {
+					endpointsByNode[node] = append(endpointsByNode[node], lbEndpoint(addr, portNum, protocol, health))
 				}
 			}
 		}
 	}
 
 	var result []*envoy_config_endpoint_v3.ClusterLoadAssignment
-	for cluster, endpointsByHost := range endpointsByClusterByHost {
+	for cluster, endpointsByNode := range endpointsByClusterByNode {
 		var localityEndpoints []*envoy_config_endpoint_v3.LocalityLbEndpoints
-		for host, endpoints := range endpointsByHost {
-			locality := c.Locality.LocalityFromHost(nodeStore, host)
+		for node, endpoints := range endpointsByNode {
 			sort.Slice(endpoints, func(i, j int) bool {
 				return endpoints[i].String() < endpoints[j].String()
 			})
 			localityEndpoints = append(localityEndpoints, &envoy_config_endpoint_v3.LocalityLbEndpoints{
-				Locality:    locality,
+				Locality:    c.Locality.LocalityFromHost(nodeStore, node),
 				LbEndpoints: endpoints,
 			})
 		}
@@ -499,6 +507,26 @@ func (c *EndpointConfig) LoadAssignmentsFromEndpoints(nodeStore cache.Store, eps
 		return result[i].GetClusterName() < result[j].GetClusterName()
 	})
 	return result
+}
+
+func clusterNames(slices map[string]*discoveryv1.EndpointSlice) map[string]struct{} {
+	clusters := make(map[string]struct{})
+	for _, eps := range slices {
+		svc := esService(eps)
+		for _, port := range eps.Ports {
+			if port.Port == nil {
+				// Ignore unspecified ports.
+				continue
+			}
+			cluster, _ := nameCluster(svc.Namespace, svc.Name, withDefault(port.Name, ""), *port.Port, withDefault(port.Protocol, "TCP"))
+			if cluster == "" {
+				// Ignore clusters that we can't name, probably because they use an unsupported protocol.
+				continue
+			}
+			clusters[cluster] = struct{}{}
+		}
+	}
+	return clusters
 }
 
 // ClusterStore is a cache.Store that receives updates about the status of Kubernetes services,
@@ -556,6 +584,7 @@ func (cs *ClusterStore) Add(obj interface{}) error {
 	}
 	return nil
 }
+
 func (cs *ClusterStore) Update(obj interface{}) error {
 	ctx, c := startOp("services", "update")
 	defer c()
@@ -570,6 +599,7 @@ func (cs *ClusterStore) Update(obj interface{}) error {
 	}
 	return nil
 }
+
 func (cs *ClusterStore) Delete(obj interface{}) error {
 	ctx, c := startOp("services", "delete")
 	defer c()
@@ -584,6 +614,7 @@ func (cs *ClusterStore) Delete(obj interface{}) error {
 	}
 	return nil
 }
+
 func (cs *ClusterStore) List() []interface{} {
 	Logger.Debug("List cluster")
 	clusters := cs.s.ListClusters()
@@ -603,14 +634,17 @@ func (cs *ClusterStore) ListKeys() []string {
 	}
 	return result
 }
+
 func (cs *ClusterStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
 	Logger.Debug("Get cluster")
 	return nil, false, errors.New("clusterwatcher.Get unimplemented")
 }
+
 func (cs *ClusterStore) GetByKey(key string) (item interface{}, exists bool, err error) {
 	Logger.Debug("GetByKey cluster")
 	return nil, false, errors.New("clusterwatcher.GetByKey unimplemented")
 }
+
 func (cs *ClusterStore) Replace(objs []interface{}, _ string) error {
 	ctx, c := startOp("services", "replace")
 	defer c()
@@ -629,6 +663,7 @@ func (cs *ClusterStore) Replace(objs []interface{}, _ string) error {
 	}
 	return nil
 }
+
 func (cs *ClusterStore) Resync() error {
 	// Nothing to do.
 	return nil
@@ -638,8 +673,11 @@ func (cs *ClusterStore) Resync() error {
 // ClusterLoadAssignment objects for EDS.
 type EndpointStore struct {
 	cfg       *EndpointConfig
-	s         *cds.Server
+	srv       *cds.Server
 	nodeStore cache.Store
+
+	mu        sync.Mutex
+	serverESs map[types.NamespacedName]map[string]*discoveryv1.EndpointSlice
 }
 
 // Store returns a cache.Store that allows a Kubernetes reflector to sync endpoint changes to an EDS
@@ -647,89 +685,140 @@ type EndpointStore struct {
 func (c *EndpointConfig) Store(nodeStore cache.Store, s *cds.Server) *EndpointStore {
 	return &EndpointStore{
 		cfg:       c,
-		s:         s,
+		srv:       s,
 		nodeStore: nodeStore,
+		serverESs: make(map[types.NamespacedName]map[string]*discoveryv1.EndpointSlice),
 	}
 }
 
-func (es *EndpointStore) Add(obj interface{}) error {
-	ctx, c := startOp("endpoints", "add")
+func (s *EndpointStore) Add(obj interface{}) error {
+	return s.update("add", obj, func(svcESs map[string]*discoveryv1.EndpointSlice, es *discoveryv1.EndpointSlice) {
+		svcESs[es.Name] = es
+	})
+}
+
+func (s *EndpointStore) Update(obj interface{}) error {
+	return s.update("update", obj, func(svcESs map[string]*discoveryv1.EndpointSlice, es *discoveryv1.EndpointSlice) {
+		svcESs[es.Name] = es
+	})
+}
+
+func (s *EndpointStore) Delete(obj interface{}) error {
+	return s.update("delete", obj, func(svcESs map[string]*discoveryv1.EndpointSlice, es *discoveryv1.EndpointSlice) {
+		delete(svcESs, es.Name)
+	})
+}
+
+func (s *EndpointStore) update(op string, obj any, updateFn func(svcESs map[string]*discoveryv1.EndpointSlice, es *discoveryv1.EndpointSlice)) error {
+	ctx, c := startOp("endpointslice", op)
 	defer c()
-	eps, ok := obj.(*v1.Endpoints)
+
+	es, ok := obj.(*discoveryv1.EndpointSlice)
 	if !ok {
 		logError(ctx)
-		return fmt.Errorf("add endpoints: got non-endpoints object: %#v", obj)
+		return fmt.Errorf("%s endpointslice: got non-endpointslice object: %#v", op, obj)
 	}
-	if err := es.s.AddEndpoints(ctx, es.cfg.LoadAssignmentsFromEndpoints(es.nodeStore, eps)); err != nil {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	svc := esService(es)
+	svcESs, ok := s.serverESs[svc]
+	if !ok {
+		svcESs = make(map[string]*discoveryv1.EndpointSlice)
+		s.serverESs[svc] = svcESs
+	}
+	prevClusters := clusterNames(svcESs)
+	updateFn(svcESs, es)
+	loadAssignments := s.cfg.LoadAssignmentsFromEndpointSlices(s.nodeStore, maps.Values(svcESs))
+
+	// Delete assignments for any clusters which no longer exist.
+	for _, ep := range loadAssignments {
+		delete(prevClusters, ep.ClusterName)
+	}
+	for cluster := range prevClusters {
+		s.srv.DeleteEndpoints(ctx, cluster)
+	}
+	if len(svcESs) == 0 {
+		delete(s.serverESs, svc)
+	}
+
+	// Set new assignments.
+	if err := s.srv.AddEndpoints(ctx, loadAssignments); err != nil {
 		logError(ctx)
-		return fmt.Errorf("add endpoints: %v", err)
+		return fmt.Errorf("%s endpoints: %v", op, err)
 	}
 	return nil
 }
-func (es *EndpointStore) Update(obj interface{}) error {
-	ctx, c := startOp("endpoints", "update")
-	defer c()
-	eps, ok := obj.(*v1.Endpoints)
-	if !ok {
-		logError(ctx)
-		return fmt.Errorf("update endpoints: got non-endpoints object: %#v", obj)
-	}
-	if err := es.s.AddEndpoints(ctx, es.cfg.LoadAssignmentsFromEndpoints(es.nodeStore, eps)); err != nil {
-		logError(ctx)
-		return fmt.Errorf("update endpoints: %v", err)
-	}
-	return nil
-}
-func (es *EndpointStore) Delete(obj interface{}) error {
-	ctx, c := startOp("endpoints", "update")
-	defer c()
-	eps, ok := obj.(*v1.Endpoints)
-	if !ok {
-		logError(ctx)
-		return fmt.Errorf("delete endpoints: got non-endpoints object: %#v", obj)
-	}
-	as := es.cfg.LoadAssignmentsFromEndpoints(es.nodeStore, eps)
-	for _, a := range as {
-		es.s.DeleteEndpoints(ctx, a.GetClusterName())
-	}
-	return nil
-}
-func (es *EndpointStore) List() []interface{} {
+
+func (s *EndpointStore) List() []interface{} {
 	Logger.Debug("List endpoints")
 	return nil
 }
 
-func (es *EndpointStore) ListKeys() []string {
+func (s *EndpointStore) ListKeys() []string {
 	Logger.Debug("ListKeys endpoints")
 	return nil
 }
-func (es *EndpointStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
+
+func (s *EndpointStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
 	Logger.Debug("Get endpoints")
 	return nil, false, errors.New("clusterwatcher.Get unimplemented")
 }
-func (es *EndpointStore) GetByKey(key string) (item interface{}, exists bool, err error) {
+
+func (s *EndpointStore) GetByKey(key string) (item interface{}, exists bool, err error) {
 	Logger.Debug("GetByKey endpoints")
 	return nil, false, errors.New("clusterwatcher.GetByKey unimplemented")
 }
-func (es *EndpointStore) Replace(objs []interface{}, _ string) error {
-	ctx, c := startOp("endpoints", "replace")
+
+func (s *EndpointStore) Replace(objs []interface{}, _ string) error {
+	ctx, c := startOp("endpointslice", "replace")
 	defer c()
-	var as []*envoy_config_endpoint_v3.ClusterLoadAssignment
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var endpoints []*discoveryv1.EndpointSlice
+	serviceEps := make(map[types.NamespacedName]map[string]*discoveryv1.EndpointSlice)
 	for _, obj := range objs {
-		eps, ok := obj.(*v1.Endpoints)
+		slice, ok := obj.(*discoveryv1.EndpointSlice)
 		if !ok {
 			logError(ctx)
-			return fmt.Errorf("replace endpoints: got non-endpoints object: %#v", obj)
+			return fmt.Errorf("replace endpointslice: got non-endpointslice object: %#v", obj)
 		}
-		as = append(as, es.cfg.LoadAssignmentsFromEndpoints(es.nodeStore, eps)...)
+		svc := esService(slice)
+		svcESs, ok := serviceEps[svc]
+		if !ok {
+			svcESs = make(map[string]*discoveryv1.EndpointSlice)
+			serviceEps[svc] = svcESs
+		}
+		svcESs[slice.Name] = slice
+		endpoints = append(endpoints, slice)
 	}
-	if err := es.s.ReplaceEndpoints(ctx, as); err != nil {
+	loadAssignments := s.cfg.LoadAssignmentsFromEndpointSlices(s.nodeStore, endpoints)
+	if err := s.srv.ReplaceEndpoints(ctx, loadAssignments); err != nil {
 		logError(ctx)
 		return fmt.Errorf("replace endpoints: %v", err)
 	}
+	s.serverESs = serviceEps
 	return nil
 }
-func (es *EndpointStore) Resync() error {
+
+func (s *EndpointStore) Resync() error {
 	// Nothing to do.
 	return nil
+}
+
+func esService(es *discoveryv1.EndpointSlice) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: es.Namespace,
+		Name:      es.Labels[discoveryv1.LabelServiceName],
+	}
+}
+
+func withDefault[T comparable](p *T, def T) T {
+	if p == nil {
+		return def
+	}
+	return *p
 }

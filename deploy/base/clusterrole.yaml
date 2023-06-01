@@ -4,11 +4,8 @@ metadata:
     name: ekglue-reader
 rules:
     - apiGroups: [""]
-      resources: ["services"]
+      resources: ["nodes", "services"]
       verbs: ["get", "watch", "list"]
-    - apiGroups: [""]
-      resources: ["endpoints"]
-      verbs: ["get", "watch", "list"]
-    - apiGroups: [""]
-      resources: ["nodes"]
+    - apiGroups: ["discovery.k8s.io"]
+      resources: ["endpointslices"]
       verbs: ["get", "watch", "list"]
