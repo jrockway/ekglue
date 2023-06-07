@@ -48,8 +48,8 @@ func main() {
 	if err := w.ListNodes(nodes); err != nil {
 		klog.Fatalf("list nodes: %v", err)
 	}
-	if err := w.ListEndpoints(cfg.EndpointConfig.Store(nodes, server)); err != nil {
-		klog.Fatalf("list endpoints: %v", err)
+	if err := w.ListEndpointSlices(cfg.EndpointConfig.Store(nodes, server)); err != nil {
+		klog.Fatalf("list endpointslices: %v", err)
 	}
 	if err := w.ListServices(cfg.ClusterConfig.Store(server)); err != nil {
 		klog.Fatalf("list services: %v", err)
