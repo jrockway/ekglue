@@ -24,9 +24,11 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zapio"
 	"go.uber.org/zap/zaptest"
+	"golang.org/x/exp/constraints"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/durationpb"
 	v1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 )
@@ -123,6 +125,23 @@ var dynamicV2config = &glue.Config{
 	EndpointConfig: &glue.EndpointConfig{},
 }
 
+func boolp(x bool) *bool {
+	return &x
+}
+
+func stringp(x string) *string {
+	return &x
+}
+
+func int32p[T constraints.Integer](x T) *int32 {
+	y := int32(x)
+	return &y
+}
+
+func protocolp(x v1.Protocol) *v1.Protocol {
+	return &x
+}
+
 func TestXDS(t *testing.T) {
 	testData := []struct {
 		name, configFile string
@@ -178,28 +197,57 @@ func TestXDS(t *testing.T) {
 			configFile: "envoy-eds-only.yaml",
 			config:     glue.DefaultConfig(),
 			push: func(addr *net.TCPAddr, es, cs cache.Store) {
-				es.Add(&v1.Endpoints{
+				es.Add(&discoveryv1.EndpointSlice{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "v1",
 						Kind:       "Service",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "test",
-						Name:      "web",
+						Name:      "web-abc12",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: "web",
+						},
 					},
-					Subsets: []v1.EndpointSubset{{
-						Addresses: []v1.EndpointAddress{{
-							IP: "127.0.0.1",
-						}},
-						NotReadyAddresses: []v1.EndpointAddress{{
-							IP: "127.0.0.2",
-						}},
-						Ports: []v1.EndpointPort{{
-							Name:     "http",
-							Port:     int32(addr.Port),
-							Protocol: v1.ProtocolTCP,
-						}},
-					}},
+					AddressType: discoveryv1.AddressTypeIPv4,
+					Endpoints: []discoveryv1.Endpoint{
+						{
+							Addresses: []string{"127.0.0.1"},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       boolp(true),
+								Serving:     boolp(true),
+								Terminating: boolp(false),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Namespace: "test",
+								Name:      "web-ccd69c978-afb4e",
+								UID:       "0e9408db-1e6d-4231-8fcb-b558f0e5a548",
+							},
+						},
+						{
+							Addresses: []string{"127.0.0.2"},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       boolp(false),
+								Serving:     boolp(false),
+								Terminating: boolp(false),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Namespace: "test",
+								Name:      "web-ccd69c978-nrws4",
+								UID:       "39416709-f96f-42be-ac00-b5657a889e95",
+							},
+						},
+					},
+					Ports: []discoveryv1.EndpointPort{
+						{
+							Name:        stringp("http"),
+							Port:        int32p(addr.Port),
+							AppProtocol: stringp("http"),
+							Protocol:    protocolp(v1.ProtocolTCP),
+						},
+					},
 				})
 			},
 		},
@@ -225,28 +273,57 @@ func TestXDS(t *testing.T) {
 						}},
 					},
 				})
-				es.Add(&v1.Endpoints{
+				es.Add(&discoveryv1.EndpointSlice{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "v1",
 						Kind:       "Service",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "test",
-						Name:      "web",
+						Name:      "web-abc12",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: "web",
+						},
 					},
-					Subsets: []v1.EndpointSubset{{
-						Addresses: []v1.EndpointAddress{{
-							IP: "127.0.0.1",
-						}},
-						NotReadyAddresses: []v1.EndpointAddress{{
-							IP: "127.0.0.2",
-						}},
-						Ports: []v1.EndpointPort{{
-							Name:     "http",
-							Port:     int32(addr.Port),
-							Protocol: v1.ProtocolTCP,
-						}},
-					}},
+					AddressType: discoveryv1.AddressTypeIPv4,
+					Endpoints: []discoveryv1.Endpoint{
+						{
+							Addresses: []string{"127.0.0.1"},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       boolp(true),
+								Serving:     boolp(true),
+								Terminating: boolp(false),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Namespace: "test",
+								Name:      "web-ccd69c978-afb4e",
+								UID:       "0e9408db-1e6d-4231-8fcb-b558f0e5a548",
+							},
+						},
+						{
+							Addresses: []string{"127.0.0.2"},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       boolp(false),
+								Serving:     boolp(false),
+								Terminating: boolp(false),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Namespace: "test",
+								Name:      "web-ccd69c978-nrws4",
+								UID:       "39416709-f96f-42be-ac00-b5657a889e95",
+							},
+						},
+					},
+					Ports: []discoveryv1.EndpointPort{
+						{
+							Name:        stringp("http"),
+							Port:        int32p(addr.Port),
+							AppProtocol: stringp("http"),
+							Protocol:    protocolp(v1.ProtocolTCP),
+						},
+					},
 				})
 			},
 		}, {
@@ -254,28 +331,57 @@ func TestXDS(t *testing.T) {
 			configFile: "envoy-cds.yaml",
 			config:     dynamicConfig,
 			push: func(addr *net.TCPAddr, es, cs cache.Store) {
-				es.Add(&v1.Endpoints{
+				es.Add(&discoveryv1.EndpointSlice{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "v1",
 						Kind:       "Service",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "test",
-						Name:      "web",
+						Name:      "web-abc12",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: "web",
+						},
 					},
-					Subsets: []v1.EndpointSubset{{
-						Addresses: []v1.EndpointAddress{{
-							IP: "127.0.0.1",
-						}},
-						NotReadyAddresses: []v1.EndpointAddress{{
-							IP: "127.0.0.2",
-						}},
-						Ports: []v1.EndpointPort{{
-							Name:     "http",
-							Port:     int32(addr.Port),
-							Protocol: v1.ProtocolTCP,
-						}},
-					}},
+					AddressType: discoveryv1.AddressTypeIPv4,
+					Endpoints: []discoveryv1.Endpoint{
+						{
+							Addresses: []string{"127.0.0.1"},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       boolp(true),
+								Serving:     boolp(true),
+								Terminating: boolp(false),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Namespace: "test",
+								Name:      "web-ccd69c978-afb4e",
+								UID:       "0e9408db-1e6d-4231-8fcb-b558f0e5a548",
+							},
+						},
+						{
+							Addresses: []string{"127.0.0.2"},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       boolp(false),
+								Serving:     boolp(false),
+								Terminating: boolp(false),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Namespace: "test",
+								Name:      "web-ccd69c978-nrws4",
+								UID:       "39416709-f96f-42be-ac00-b5657a889e95",
+							},
+						},
+					},
+					Ports: []discoveryv1.EndpointPort{
+						{
+							Name:        stringp("http"),
+							Port:        int32p(addr.Port),
+							AppProtocol: stringp("http"),
+							Protocol:    protocolp(v1.ProtocolTCP),
+						},
+					},
 				})
 				cs.Add(&v1.Service{
 					TypeMeta: metav1.TypeMeta{
@@ -301,28 +407,57 @@ func TestXDS(t *testing.T) {
 			config:     dynamicV2config,
 			wantFail:   true,
 			push: func(addr *net.TCPAddr, es, cs cache.Store) {
-				es.Add(&v1.Endpoints{
+				es.Add(&discoveryv1.EndpointSlice{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "v1",
 						Kind:       "Service",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "test",
-						Name:      "web",
+						Name:      "web-abc12",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: "web",
+						},
 					},
-					Subsets: []v1.EndpointSubset{{
-						Addresses: []v1.EndpointAddress{{
-							IP: "127.0.0.1",
-						}},
-						NotReadyAddresses: []v1.EndpointAddress{{
-							IP: "127.0.0.2",
-						}},
-						Ports: []v1.EndpointPort{{
-							Name:     "http",
-							Port:     int32(addr.Port),
-							Protocol: v1.ProtocolTCP,
-						}},
-					}},
+					AddressType: discoveryv1.AddressTypeIPv4,
+					Endpoints: []discoveryv1.Endpoint{
+						{
+							Addresses: []string{"127.0.0.1"},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       boolp(true),
+								Serving:     boolp(true),
+								Terminating: boolp(false),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Namespace: "test",
+								Name:      "web-ccd69c978-afb4e",
+								UID:       "0e9408db-1e6d-4231-8fcb-b558f0e5a548",
+							},
+						},
+						{
+							Addresses: []string{"127.0.0.2"},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       boolp(false),
+								Serving:     boolp(false),
+								Terminating: boolp(false),
+							},
+							TargetRef: &v1.ObjectReference{
+								Kind:      "Pod",
+								Namespace: "test",
+								Name:      "web-ccd69c978-nrws4",
+								UID:       "39416709-f96f-42be-ac00-b5657a889e95",
+							},
+						},
+					},
+					Ports: []discoveryv1.EndpointPort{
+						{
+							Name:        stringp("http"),
+							Port:        int32p(addr.Port),
+							AppProtocol: stringp("http"),
+							Protocol:    protocolp(v1.ProtocolTCP),
+						},
+					},
 				})
 				cs.Add(&v1.Service{
 					TypeMeta: metav1.TypeMeta{

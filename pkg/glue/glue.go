@@ -298,6 +298,7 @@ func (c *ClusterConfig) isEDS(cl *envoy_config_cluster_v3.Cluster) bool {
 // those.  We also return the Envoy protocol of the port here, because it's convenient, not because
 // it's good design.
 func nameCluster(namespace, service, portName string, portNumber int32, portProtocol v1.Protocol) (string, envoy_config_core_v3.SocketAddress_Protocol) {
+	fmt.Printf("nameCluster: %v <%v> %v %v %v", namespace, service, portName, portNumber, portProtocol)
 	var protoSuffix string
 	var envoyProtocol envoy_config_core_v3.SocketAddress_Protocol
 	switch portProtocol {
