@@ -84,6 +84,7 @@ func main() {
 		yaml, err := cfg.EndpointConfig.Locality.LocalitiesAsYAML(ns)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		w.Write(yaml)
 	}))

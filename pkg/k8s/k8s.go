@@ -58,7 +58,7 @@ func ConnectInCluster() (*ClusterWatcher, error) {
 
 // newListWatch returns a ListerWatcher that watches the configured k8s API object with the built-in
 // client.
-func (cw *ClusterWatcher) newListWatch(getter cache.Getter, resource, namespace string, fieldSelector fields.Selector) cache.ListerWatcher {
+func (cw *ClusterWatcher) newListWatch(getter cache.Getter, resource, namespace string, fieldSelector fields.Selector) cache.ListerWatcher { //nolint:unparam
 	if cw.testLW != nil {
 		return cw.testLW
 	}

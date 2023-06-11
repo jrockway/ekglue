@@ -17,6 +17,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
+	"github.com/opentracing/opentracing-go/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/uber/jaeger-client-go"
@@ -462,7 +463,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 				xdsResourcePushAge.WithLabelValues(m.Name, m.Type, n).SetToCurrentTime()
 			}
 			txs[res.GetNonce()] = t
-			span.LogEvent("pushed resources") // nolint
+			span.LogFields(log.Event("pushed resources"))
 			return nil
 		case <-ctx.Done():
 			err := ctx.Err()
@@ -475,7 +476,7 @@ func (m *Manager) Stream(ctx context.Context, reqCh chan *discovery_v3.Discovery
 
 	// handleTx handles an acknowledgement
 	handleTx := func(t *tx, req *discovery_v3.DiscoveryRequest) {
-		t.span.LogEvent("got response") // nolint
+		t.span.LogFields(log.Event("got response"))
 		var ack bool
 		origVersion, version := t.version, req.GetVersionInfo()
 		if err := req.GetErrorDetail(); err != nil {

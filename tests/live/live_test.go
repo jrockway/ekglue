@@ -37,14 +37,14 @@ func get(t *testing.T, url string) error {
 	t.Helper()
 	var ok bool
 	for i := 0; i < 20; i++ {
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequest("GET", url, http.NoBody)
 		if err != nil {
 			return fmt.Errorf("prepare request: %v", err)
 		}
 		ctx, c := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer c()
 		req = req.WithContext(ctx)
 		res, err := http.DefaultClient.Do(req)
+		c()
 		if err != nil {
 			t.Logf("get %v: attempt %d: %v", url, i, err)
 			time.Sleep(200 * time.Millisecond)
@@ -108,7 +108,7 @@ var dynamicV2config = &glue.Config{
 					ConfigSourceSpecifier: &envoy_config_core_v3.ConfigSource_ApiConfigSource{
 						ApiConfigSource: &envoy_config_core_v3.ApiConfigSource{
 							ApiType:             envoy_config_core_v3.ApiConfigSource_GRPC,
-							TransportApiVersion: envoy_config_core_v3.ApiVersion_V2, // nolint:staticcheck
+							TransportApiVersion: envoy_config_core_v3.ApiVersion_V2, //nolint:staticcheck
 							GrpcServices: []*envoy_config_core_v3.GrpcService{{
 								TargetSpecifier: &envoy_config_core_v3.GrpcService_EnvoyGrpc_{EnvoyGrpc: &envoy_config_core_v3.GrpcService_EnvoyGrpc{
 									ClusterName: "xds",
@@ -117,7 +117,7 @@ var dynamicV2config = &glue.Config{
 						},
 					},
 					InitialFetchTimeout: durationpb.New(time.Second),
-					ResourceApiVersion:  envoy_config_core_v3.ApiVersion_V2, // nolint:staticcheck
+					ResourceApiVersion:  envoy_config_core_v3.ApiVersion_V2, //nolint:staticcheck
 				},
 			},
 		},

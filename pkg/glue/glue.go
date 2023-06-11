@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"sort"
 	"strconv"
 	"sync"
@@ -197,7 +197,7 @@ func DefaultConfig() *Config {
 }
 
 func LoadConfig(filename string) (*Config, error) {
-	raw, err := ioutil.ReadFile(filename)
+	raw, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +298,6 @@ func (c *ClusterConfig) isEDS(cl *envoy_config_cluster_v3.Cluster) bool {
 // those.  We also return the Envoy protocol of the port here, because it's convenient, not because
 // it's good design.
 func nameCluster(namespace, service, portName string, portNumber int32, portProtocol v1.Protocol) (string, envoy_config_core_v3.SocketAddress_Protocol) {
-	fmt.Printf("nameCluster: %v <%v> %v %v %v", namespace, service, portName, portNumber, portProtocol)
 	var protoSuffix string
 	var envoyProtocol envoy_config_core_v3.SocketAddress_Protocol
 	switch portProtocol {
@@ -311,7 +310,7 @@ func nameCluster(namespace, service, portName string, portNumber int32, portProt
 	case v1.ProtocolSCTP:
 		// Envoy doesn't support SCTP, so neither do we.  See Envoy issue
 		// https://github.com/envoyproxy/envoy/issues/9430
-		fallthrough // nolint
+		fallthrough //nolint
 	default:
 		return "", 0
 	}
