@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -22,6 +21,8 @@ import (
 	"github.com/jrockway/ekglue/pkg/glue"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zapio"
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -468,28 +469,14 @@ func TestXDS(t *testing.T) {
 }
 
 func redirectToLog(l *zap.Logger, cmd *exec.Cmd) {
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		panic(err)
+	cmd.Stderr = &zapio.Writer{
+		Log:   l.Named("stderr"),
+		Level: zapcore.InfoLevel,
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		panic(err)
+	cmd.Stdout = &zapio.Writer{
+		Log:   l.Named("stdout"),
+		Level: zapcore.InfoLevel,
 	}
-	go func() {
-		s := bufio.NewScanner(stdout)
-		l := l.Named("stdout")
-		for s.Scan() {
-			l.Info(s.Text())
-		}
-	}()
-	go func() {
-		s := bufio.NewScanner(stderr)
-		l := l.Named("stderr")
-		for s.Scan() {
-			l.Info(s.Text())
-		}
-	}()
 }
 
 type wrappedServerStream struct {

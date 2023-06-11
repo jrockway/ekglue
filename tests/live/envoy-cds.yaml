@@ -33,13 +33,19 @@ static_resources:
                               validate_clusters: false
                           http_filters:
                               - name: envoy.filters.http.router
+                                typed_config:
+                                    "@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"
     clusters:
         - name: xds
           connect_timeout: 1s
           type: STATIC
           dns_lookup_family: V4_ONLY
           lb_policy: RANDOM
-          http2_protocol_options: {}
+          typed_extension_protocol_options:
+              envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                  "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+                  explicit_http_config:
+                      http2_protocol_options: {}
           upstream_connection_options:
               tcp_keepalive: {}
           load_assignment:
