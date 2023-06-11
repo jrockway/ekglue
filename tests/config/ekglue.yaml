@@ -1,0 +1,162 @@
+apiVersion: v1alpha
+endpoint_config:
+    include_not_ready: true
+    locality:
+        region_from:
+            label: topology.kubernetes.io/region
+        zone_from:
+            use_hostname: true
+cluster_config:
+    base:
+        connect_timeout: 1s
+        lb_policy: RANDOM
+        circuit_breakers:
+            thresholds:
+                - track_remaining: true
+        outlier_detection:
+            success_rate_minimum_hosts: 2
+            success_rate_request_volume: 20
+        type: EDS
+        upstream_connection_options:
+            tcp_keepalive: {}
+        common_lb_config:
+            zone_aware_lb_config:
+                routing_enabled:
+                    value: 100.0
+                min_cluster_size: 1
+        eds_cluster_config:
+            eds_config:
+                resource_api_version: V3
+                api_config_source:
+                    api_type: GRPC
+                    transport_api_version: V3
+                    grpc_services:
+                        - envoy_grpc:
+                              cluster_name: discovery:ekglue:grpc
+    overrides:
+        - match:
+              - port_name: h2
+          override:
+              typed_extension_protocol_options:
+                  envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                      "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+                      explicit_http_config:
+                          http2_protocol_options: {}
+        - match:
+              - port_name: grpc
+          override:
+              typed_extension_protocol_options:
+                  envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                      "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+                      explicit_http_config:
+                          http2_protocol_options: {}
+        - match:
+              - port_name: https2
+          override:
+              typed_extension_protocol_options:
+                  envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                      "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+                      explicit_http_config:
+                          http2_protocol_options: {}
+              transport_socket:
+                  name: envoy.transport_sockets.tls
+                  typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+                      common_tls_context:
+                          alpn_protocols: ["http/1.1"]
+                          tls_certificate_sds_secret_configs:
+                              - name: "client"
+                                sds_config:
+                                    resource_api_version: V3
+                                    path: /etc/envoy/client-sds.yaml
+                          validation_context_sds_secret_config:
+                              name: "client-validation"
+                              sds_config:
+                                  resource_api_version: V3
+                                  path: /etc/envoy/client-validation-sds.yaml
+        - match:
+              - port_name: https
+          override:
+              transport_socket:
+                  name: envoy.transport_sockets.tls
+                  typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+                      common_tls_context:
+                          alpn_protocols: ["http/1.1"]
+                          tls_certificate_sds_secret_configs:
+                              - name: "client"
+                                sds_config:
+                                    resource_api_version: V3
+                                    path: /etc/envoy/client-sds.yaml
+                          validation_context_sds_secret_config:
+                              name: "client-validation"
+                              sds_config:
+                                  resource_api_version: V3
+                                  path: /etc/envoy/client-validation-sds.yaml
+        - match:
+              - cluster_name: www:www-jrock-us:h2
+          override:
+              max_requests_per_connection: 999
+              health_checks:
+                  - timeout: 1s
+                    interval: 4s
+                    healthy_threshold: 1
+                    unhealthy_threshold: 2
+                    http_health_check:
+                        host: "www.jrock.us"
+                        path: "/nginx-health-check"
+                        codec_client_type: HTTP2
+        - match:
+              - cluster_name: observability:jaeger-query:http-query
+          override:
+              health_checks:
+                  - timeout: 1s
+                    interval: 4s
+                    healthy_threshold: 1
+                    unhealthy_threshold: 2
+                    http_health_check:
+                        host: "jaeger.jrock.us"
+                        path: "/"
+        - match:
+              - cluster_name: concourse:concourse-web:atc
+          override:
+              health_checks:
+                  - timeout: 1s
+                    interval: 4s
+                    healthy_threshold: 1
+                    unhealthy_threshold: 2
+                    http_health_check:
+                        host: "ci.jrock.us"
+                        path: "/api/v1/info"
+        - match:
+              - cluster_name: monitoring:grafana:https
+          override:
+              health_checks:
+                  - timeout: 1s
+                    interval: 4s
+                    healthy_threshold: 1
+                    unhealthy_threshold: 2
+                    http_health_check:
+                        host: "grafana.jrock.us"
+                        path: "/api/health"
+        - match:
+              - cluster_name: monitoring:prometheus-operated:web
+              - cluster_name: monitoring:alertmanager-operated:web
+          override:
+              health_checks:
+                  - timeout: 1s
+                    interval: 4s
+                    healthy_threshold: 1
+                    unhealthy_threshold: 2
+                    http_health_check:
+                        path: "/-/healthy"
+        - match:
+              - cluster_name: argocd:argocd-server:http
+          override:
+              health_checks:
+                  - timeout: 1s
+                    interval: 4s
+                    healthy_threshold: 1
+                    unhealthy_threshold: 2
+                    http_health_check:
+                        path: "/healthz"
