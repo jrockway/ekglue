@@ -27,19 +27,13 @@ spec:
                       - name: VERSION_PREFIX
                         value: "$(MY_POD_NAME)-"
                   readinessProbe:
-                      exec:
-                          command:
-                              - /bin/grpc_health_probe
-                              - -addr
-                              - localhost:9000
+                      grpc:
+                          port: 9000
                       initialDelaySeconds: 1
                       periodSeconds: 10
                   livenessProbe:
-                      exec:
-                          command:
-                              - /bin/grpc_health_probe
-                              - -addr
-                              - localhost:9000
+                      grpc:
+                          port: 9000
                       initialDelaySeconds: 10
                       periodSeconds: 10
                   ports:
