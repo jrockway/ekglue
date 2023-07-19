@@ -198,6 +198,7 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 	// First try sending to sessions that aren't busy.
 	blocked := make(map[session]struct{})
 	m.sessionsMu.Lock()
+	defer m.sessionsMu.Unlock()
 	for session := range m.sessions {
 		select {
 		case session <- u:
@@ -219,7 +220,6 @@ func (m *Manager) notify(ctx context.Context, resources []string) error {
 			}
 		}
 	}
-	m.sessionsMu.Unlock()
 	return nil
 }
 
